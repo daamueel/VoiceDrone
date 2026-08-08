@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+
+# Conda environment
+.env
+.conda/
+
+# Virtual environments
+venv/
+env/
+
+# MATLAB
+*.asv
+*.m~
+*.autosave
+slprj/
+*.slxc
+
+# Simulink generated files
+*.mex*
+*.out
+
+# Logs
+*.log
+
+# Drone data
+*.tlog
+*.bin
+*.ulg
+
+# Test outputs
+Tests/results/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
