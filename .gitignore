@@ -1,42 +1,113 @@
+# ============================================================
 # Python
+# ============================================================
+
 __pycache__/
 *.py[cod]
+*.pyo
 *.so
 *.egg-info/
 
-# Conda environment
+# Python environments
 .env
+.env.*
 .conda/
-
-# Virtual environments
 venv/
 env/
+.venv/
 
-# MATLAB
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python build artifacts
+build/
+dist/
+
+
+# ============================================================
+# MATLAB / Simulink
+# ============================================================
+
+# MATLAB autosave / temporary files
 *.asv
 *.m~
 *.autosave
-slprj/
-*.slxc
 
 # Simulink generated files
+slprj/
+*.slxc
 *.mex*
 *.out
 
-# Logs
-*.log
 
-# Drone data
+# ============================================================
+# PX4 / SITL
+# ============================================================
+
+# PX4 build artifacts
+px4/build/
+
+# If PX4 is cloned inside this repository, consider ignoring
+# the entire checkout instead of versioning PX4 here:
+# PX4-Autopilot/
+
+# SITL runtime artifacts
 *.tlog
+*.ulg
 *.bin
+
+
+# ============================================================
+# Gazebo
+# ============================================================
+
+.gazebo/
+gazebo.log
+gz.log
+
+
+# ============================================================
+# Logs / runtime output
+# ============================================================
+
+*.log
+logs/
+runtime/
+
+
+# ============================================================
+# Test outputs
+# ============================================================
+
+tests/results/
+test-results/
+.pytest_cache/
+
+
+# ============================================================
+# Drone data
+# ============================================================
+
+*.tlog
 *.ulg
 
-# Test outputs
-Tests/results/
 
-# OS files
+# ============================================================
+# OS
+# ============================================================
+
 .DS_Store
 Thumbs.db
+desktop.ini
 
+
+# ============================================================
 # VS Code
+# ============================================================
+
 .vscode/
