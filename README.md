@@ -13,11 +13,11 @@ ROS 2, and real hardware are later work.
 - [x] Gazebo Harmonic and PX4 simulation assets verified
 - [x] Windows Python 3.11 and MAVSDK environment verified
 - [x] PX4 SITL and the Gazebo x500 verified together
-- [ ] Windows-to-WSL telemetry verified
+- [x] Windows-to-WSL telemetry verified
 - [ ] Independent takeoff behavior implemented and flight-tested
 - [ ] Independent circle behavior implemented and flight-tested
 - [ ] Takeoff, circle, and runner-controlled landing flight-tested together
 
-See [Documentation/setup.md](Documentation/setup.md) for the verified toolchain
-and [Documentation/architecture.md](Documentation/architecture.md) for the
+See [documentation/setup.md](documentation/setup.md) for the verified toolchain
+and [documentation/architecture.md](documentation/architecture.md) for the
 coordinate and component design.
