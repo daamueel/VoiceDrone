@@ -12,7 +12,7 @@ ROS 2, and real hardware are later work.
 - [x] PX4 v1.17.0 and recursive submodules verified
 - [x] Gazebo Harmonic and PX4 simulation assets verified
 - [x] Windows Python 3.11 and MAVSDK environment verified
-- [ ] PX4 SITL and the Gazebo x500 verified together
+- [x] PX4 SITL and the Gazebo x500 verified together
 - [ ] Windows-to-WSL telemetry verified
 - [ ] Independent takeoff behavior implemented and flight-tested
 - [ ] Independent circle behavior implemented and flight-tested

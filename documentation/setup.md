@@ -65,6 +65,39 @@ is configured as the default:
 wsl.exe -d Ubuntu-24.04
 ```
 
-The PX4/Gazebo build, launch, telemetry, test-runner, analysis, plotting, and
-safe-shutdown commands will be documented only after they have been exercised
-in their corresponding Milestone 1 verification steps.
+## Verified PX4/Gazebo launch
+
+From Ubuntu 24.04:
+
+```bash
+cd ~/PX4-Autopilot
+make px4_sitl gz_x500
+```
+
+The first build is substantial. A successful launch reaches the `pxh>` prompt,
+prints `Startup script returned successfully`, reports Gazebo world `default`
+as ready, and connects `gz_bridge` to model `x500_0`. The model can be checked
+from a second Ubuntu shell with:
+
+```bash
+gz model --list
+```
+
+The verified result contains `ground_plane` and `x500_0`. Warnings about the
+model's `gz_frame_id` elements are non-fatal with the verified Gazebo version.
+
+For a controlled shutdown:
+
+1. Enter `shutdown` at the PX4 `pxh>` prompt and wait for `Exiting NOW.`
+2. Press `Ctrl+C` once in the original launch terminal to stop the remaining
+   Gazebo server and GUI processes owned by `make`.
+
+Afterward, the following command should produce no simulator processes:
+
+```bash
+pgrep -a -f 'build/px4_sitl_default/bin/px4|gz sim --verbose=1|gz sim -g'
+```
+
+The Windows telemetry, test-runner, analysis, and plotting commands will be
+documented only after they have been exercised in their corresponding
+Milestone 1 verification steps.
