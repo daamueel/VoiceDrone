@@ -49,14 +49,14 @@ slprj/
 # PX4 / SITL
 # ============================================================
 
-# PX4 build artifacts
-px4/build/
+# PX4 build artifacts if a checkout is ever placed in this repository
+PX4-Autopilot/build/
 
 # If PX4 is cloned inside this repository, consider ignoring
 # the entire checkout instead of versioning PX4 here:
 # PX4-Autopilot/
 
-# SITL runtime artifacts
+# PX4 runtime artifacts
 *.tlog
 *.ulg
 *.bin
@@ -76,6 +76,7 @@ gz.log
 # ============================================================
 
 *.log
+# Generated SITL CSV logs and matching N/E plots are written here.
 logs/
 runtime/
 
@@ -86,15 +87,6 @@ runtime/
 
 tests/results/
 test-results/
-.pytest_cache/
-
-
-# ============================================================
-# Drone data
-# ============================================================
-
-*.tlog
-*.ulg
 
 
 # ============================================================
