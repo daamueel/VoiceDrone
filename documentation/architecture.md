@@ -18,6 +18,15 @@ arming, action order, logging, error handling, and safe shutdown. In particular:
 Future voice phrases such as "circle" and "centripetal" should resolve to the
 same circle behavior without changing its trajectory implementation.
 
+The Step 8 implementation uses these small components:
+
+- `voicedrone/trajectory.py`: PX4-independent trajectory and measured-state
+  data types.
+- `voicedrone/takeoff.py`: deterministic takeoff generation and completion.
+- `voicedrone/px4_offboard_adapter.py`: the only MAVSDK/PX4 import boundary.
+- `run_sitl.py`: wall-clock execution, action ordering, landing, and cleanup.
+- `voicedrone/sitl_log.py` and `analyze_sitl.py`: CSV capture and analysis.
+
 ## Local frame conventions
 
 Flight trajectories use PX4 local NED coordinates:

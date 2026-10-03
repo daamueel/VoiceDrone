@@ -161,5 +161,60 @@ This confirms bidirectional communication. Closing the short-lived client
 causes PX4 to report that its ground-station connection was lost; that is
 expected for this probe.
 
-The test-runner, analysis, and plotting commands will be documented after they
-have been exercised in their corresponding Milestone 1 verification steps.
+## Verified takeoff run
+
+Keep PX4/Gazebo running and apply the Windows-side WSL gateway routing described
+above. In a Windows PowerShell at the repository root, activate the verified
+environment and run the independent takeoff test:
+
+```powershell
+conda activate voicedrone
+python -m pytest -q
+python run_sitl.py takeoff --target-altitude 5.0
+```
+
+The behavior generates a one metre-per-second vertical position ramp from its
+measured starting NED position. North, east, and yaw remain fixed. Completion
+requires the measured down position to be within 0.25 m of
+`start_down - target_altitude`. After completion, the runner—not `Takeoff`—uses
+the separate MAVSDK land action and waits for disarm.
+
+Every run writes a UTC-named CSV under `logs/`. Analyze the path printed by the
+runner to calculate takeoff metrics and create the matching top-down plot:
+
+```powershell
+python analyze_sitl.py logs\sitl_<UTC-timestamp>_takeoff.csv
+```
+
+The verified regression artifacts were:
+
+```text
+logs\sitl_20261002T203017Z_takeoff.csv
+logs\sitl_20261002T203017Z_takeoff_ne.png
+```
+
+The verified CSV contains commanded and measured local-NED position and
+velocity, yaw, yaw rate, UTC timestamp, trajectory time, execution phase,
+flight mode, and armed state. Its observed results were:
+
+```text
+unit tests:                  10 passed
+commanded altitude gain:    5.000 m
+measured altitude gain:     4.753 m
+final vertical error:       0.247 m
+maximum lateral drift:      0.040 m
+peak vertical speed:        2.177 m/s
+absolute yaw change:        0.000 rad
+takeoff samples:            166
+total samples:              278
+final armed state:          false
+```
+
+The run completed in offboard mode, changed to land mode for the runner action,
+and disarmed near its starting altitude. The generated artifacts are ignored by
+Git. Preserve a required artifact outside `logs/` before repository cleanup.
+
+After the runner reports `Landing complete: vehicle disarmed`, shut PX4 and
+Gazebo down using the controlled procedure in **Verified PX4/Gazebo launch**.
+Circle run and combined-sequence commands remain unverified until Steps 9 and
+10.

@@ -14,7 +14,7 @@ ROS 2, and real hardware are later work.
 - [x] Windows Python 3.11 and MAVSDK environment verified
 - [x] PX4 SITL and the Gazebo x500 verified together
 - [x] Windows-to-WSL telemetry verified
-- [ ] Independent takeoff behavior implemented and flight-tested
+- [x] Independent takeoff behavior implemented and flight-tested
 - [ ] Independent circle behavior implemented and flight-tested
 - [ ] Takeoff, circle, and runner-controlled landing flight-tested together
 
