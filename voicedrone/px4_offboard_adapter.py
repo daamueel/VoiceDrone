@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import math
-from collections.abc import AsyncIterator
 from typing import Any
 
 from mavsdk import System
@@ -66,6 +65,12 @@ class PX4OffboardAdapter:
 
     async def arm(self) -> None:
         await self._drone.action.arm()
+
+    async def action_takeoff(self, altitude_m: float) -> None:
+        """Use PX4's action takeoff only as runner setup for an airborne test."""
+
+        await self._drone.action.set_takeoff_altitude(altitude_m)
+        await self._drone.action.takeoff()
 
     async def send(self, point: TrajectoryPoint) -> None:
         await self._drone.offboard.set_position_ned(

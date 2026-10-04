@@ -23,6 +23,7 @@ The Step 8 implementation uses these small components:
 - `voicedrone/trajectory.py`: PX4-independent trajectory and measured-state
   data types.
 - `voicedrone/takeoff.py`: deterministic takeoff generation and completion.
+- `voicedrone/circle.py`: deterministic circle geometry and completion.
 - `voicedrone/px4_offboard_adapter.py`: the only MAVSDK/PX4 import boundary.
 - `run_sitl.py`: wall-clock execution, action ordering, landing, and cleanup.
 - `voicedrone/sitl_log.py` and `analyze_sitl.py`: CSV capture and analysis.
@@ -67,11 +68,26 @@ velocity as `speed / radius`, and defaults to one revolution with duration
 `2*pi/abs(angular_velocity)`. Explicit angular velocity and duration are
 allowed subject to validation of invalid or conflicting inputs.
 
-The circle will initialize from the measured airborne position. Its centre and
-phase will be chosen so the first circular setpoint equals that position. If a
-different entry geometry is needed, a separately timed entry maneuver will
-reach the circumference first; entry time is not counted as circular-motion
-duration. This prevents a position jump during the takeoff-to-circle handoff.
+The circle initializes from the measured airborne position. For a selected
+phase, its centre is calculated as:
+
+```text
+Nc = start_N - R * cos(phase)
+Ec = start_E - R * sin(phase)
+```
+
+Therefore, its first circular setpoint equals the measured start exactly. The
+default phase is zero, so the centre is `radius` metres south of the start and
+positive angular velocity initially moves east. No entry maneuver is needed
+for this geometry. If a different fixed centre is needed later, a separately
+timed entry maneuver must reach the circumference first; entry time must not be
+counted as circular-motion duration.
+
+The current circle holds the measured starting altitude and yaw. Its position
+and analytic velocity are continuous around the circumference, although the
+start changes immediately from hover to the requested tangential velocity.
+PX4 currently receives position/yaw setpoints; logged analytic velocity is not
+sent as feed-forward.
 
 The SITL verification circle uses radius 10 m, angular velocity 0.1 rad/s,
 speed 1 m/s, and approximately 62.83 seconds of circular motion.

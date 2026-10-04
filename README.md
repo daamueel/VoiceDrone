@@ -15,7 +15,7 @@ ROS 2, and real hardware are later work.
 - [x] PX4 SITL and the Gazebo x500 verified together
 - [x] Windows-to-WSL telemetry verified
 - [x] Independent takeoff behavior implemented and flight-tested
-- [ ] Independent circle behavior implemented and flight-tested
+- [x] Independent circle behavior implemented and flight-tested
 - [ ] Takeoff, circle, and runner-controlled landing flight-tested together
 
 See [documentation/setup.md](documentation/setup.md) for the verified toolchain

@@ -216,5 +216,73 @@ Git. Preserve a required artifact outside `logs/` before repository cleanup.
 
 After the runner reports `Landing complete: vehicle disarmed`, shut PX4 and
 Gazebo down using the controlled procedure in **Verified PX4/Gazebo launch**.
-Circle run and combined-sequence commands remain unverified until Steps 9 and
-10.
+The independent circle procedure is documented below; the combined sequence
+remains unverified until Step 10.
+
+## Verified independent circle run
+
+Keep PX4/Gazebo running and apply the Windows-side WSL gateway routing described
+above. From a Windows PowerShell at the repository root:
+
+```powershell
+conda activate voicedrone
+python -m pytest -q
+python run_sitl.py circle --radius 10.0 --speed 1.0 --angular-velocity 0.1
+```
+
+For this independent test, the runner uses PX4's action takeoff to establish a
+settled airborne state at approximately 5 m. That setup is not part of
+`Circle` and its time is not included in circular-motion duration. The runner
+then starts offboard mode, executes one clockwise revolution for approximately
+62.83 seconds, and invokes its separate landing action.
+
+`Circle(radius=5.0)` can also be used with radius alone. It defaults to 1 m/s,
+derives positive angular velocity as `speed / radius`, and derives one
+revolution of duration as `2*pi / abs(angular_velocity)`. Negative angular
+velocity selects counterclockwise motion. Explicit speed and angular velocity
+may be combined only when `speed == abs(angular_velocity) * radius`.
+
+Analyze the path printed by the runner:
+
+```powershell
+python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle.csv
+```
+
+The verified artifacts were:
+
+```text
+logs\sitl_20261003T234349Z_circle.csv
+logs\sitl_20261003T234349Z_circle_ne.png
+```
+
+The observed results were:
+
+```text
+unit tests:                       32 passed
+circle samples:                   1327
+logged circular-motion duration:  62.875 s
+commanded radius:                 10.000 m
+measured mean radius:             9.990 m
+radial RMSE:                       0.024 m
+commanded mean speed:              0.999 m/s
+measured mean speed:               0.952 m/s
+commanded angular velocity:        0.1000 rad/s
+measured angular velocity:         0.0999 rad/s
+mean absolute altitude error:      0.008 m
+maximum altitude error:            0.026 m
+altitude range:                    0.043 m
+maximum absolute yaw change:       0.030 rad
+first circular position jump:      0.000000000 m
+direction:                         clockwise
+final armed state:                 false
+```
+
+Unit tests cover clockwise and counterclockwise equations, arbitrary phase,
+tangential speed, start/end continuity, completion, duration, defaults, and
+invalid or conflicting inputs. No NED-to-body-FRD velocity conversion is used
+by this position-setpoint implementation.
+
+The generated artifacts remain ignored by Git. After the runner reports that
+landing completed and the vehicle disarmed, use the controlled PX4/Gazebo
+shutdown procedure above. The combined `Takeoff` behavior to `Circle` behavior
+sequence remains unverified until Step 10.
