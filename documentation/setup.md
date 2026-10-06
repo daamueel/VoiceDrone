@@ -219,7 +219,7 @@ Gazebo down using the controlled procedure in **Verified PX4/Gazebo launch**.
 The independent circle procedure is documented below; the combined sequence
 remains unverified until Step 10.
 
-## Verified independent circle run
+## Verified independent circle runs
 
 Keep PX4/Gazebo running and apply the Windows-side WSL gateway routing described
 above. From a Windows PowerShell at the repository root:
@@ -227,62 +227,77 @@ above. From a Windows PowerShell at the repository root:
 ```powershell
 conda activate voicedrone
 python -m pytest -q
-python run_sitl.py circle --radius 10.0 --speed 1.0 --angular-velocity 0.1
+python run_sitl.py circle-side --radius 10.0 --speed 1.0 --angular-velocity 0.1
+python run_sitl.py circle-centered --radius 5.0 --speed 1.0 --angular-velocity 0.2
 ```
 
-For this independent test, the runner uses PX4's action takeoff to establish a
-settled airborne state at approximately 5 m. That setup is not part of
-`Circle` and its time is not included in circular-motion duration. The runner
-then starts offboard mode, executes one clockwise revolution for approximately
-62.83 seconds, and invokes its separate landing action.
+For each independent test, the runner uses PX4's action takeoff to establish a
+settled airborne state at approximately 5 m. That setup is not part of either
+circle behavior. The runner exits offboard mode, invokes its separate landing
+action, waits for disarm, and closes MAVSDK after each flight.
 
-`Circle(radius=5.0)` can also be used with radius alone. It defaults to 1 m/s,
-derives positive angular velocity as `speed / radius`, and derives one
-revolution of duration as `2*pi / abs(angular_velocity)`. Negative angular
-velocity selects counterclockwise motion. Explicit speed and angular velocity
-may be combined only when `speed == abs(angular_velocity) * radius`.
+`circle-side` holds the measured airborne position while aligning the nose on
+its offset centre, then starts circular-motion time. `circle-centered` treats
+the measured airborne position as its centre, performs a separately timed
+radial entry behind the initial heading, settles on the circumference, and
+then starts circular-motion time. Its entry is shown in the generated plot.
+
+Both variants can be used with radius alone. They default to 1 m/s, derive
+positive angular velocity as `speed / radius`, and derive one revolution of
+duration as `2*pi / abs(angular_velocity)`. Negative angular velocity selects
+counterclockwise motion. Explicit speed and angular velocity may be combined
+only when `speed == abs(angular_velocity) * radius`.
 
 Analyze the path printed by the runner:
 
 ```powershell
-python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle.csv
+python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_side.csv
+python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_centered.csv
 ```
 
 The verified artifacts were:
 
 ```text
-logs\sitl_20261003T234349Z_circle.csv
-logs\sitl_20261003T234349Z_circle_ne.png
+logs\sitl_20261006T193151Z_circle_side.csv
+logs\sitl_20261006T193151Z_circle_side_ne.png
+logs\sitl_20261006T193727Z_circle_centered.csv
+logs\sitl_20261006T193727Z_circle_centered_ne.png
 ```
 
 The observed results were:
 
 ```text
-unit tests:                       32 passed
-circle samples:                   1327
-logged circular-motion duration:  62.875 s
-commanded radius:                 10.000 m
-measured mean radius:             9.990 m
-radial RMSE:                       0.024 m
-commanded mean speed:              0.999 m/s
-measured mean speed:               0.952 m/s
-commanded angular velocity:        0.1000 rad/s
-measured angular velocity:         0.0999 rad/s
-mean absolute altitude error:      0.008 m
-maximum altitude error:            0.026 m
-altitude range:                    0.043 m
-maximum absolute yaw change:       0.030 rad
-first circular position jump:      0.000000000 m
-direction:                         clockwise
-final armed state:                 false
+unit tests:                              60 passed
+
+side commanded/measured mean radius:     10.000 / 9.988 m
+side radial RMSE:                         0.028 m
+side commanded/measured mean speed:       0.999 / 0.980 m/s
+side commanded/measured angular velocity: 0.1000 / 0.0999 rad/s
+side mean/max centre heading error:       0.0675 / 0.0847 rad
+side maximum altitude error:              0.026 m
+
+centered entry radius:                    5.000 m
+centered entry-to-circle position jump:   0.000000000 m
+centered entry-to-circle yaw jump:        0.000000000 rad
+centered commanded/measured mean radius:  5.000 / 4.993 m
+centered radial RMSE:                      0.022 m
+centered commanded/measured mean speed:    0.999 / 0.962 m/s
+centered commanded/measured angular rate: 0.2000 / 0.1992 rad/s
+centered mean/max centre heading error:    0.1299 / 0.1671 rad
+centered max entry centre heading error:   0.0573 rad
+centered maximum altitude error:           0.020 m
+centered final mode / armed state:         HOLD / false
 ```
 
-Unit tests cover clockwise and counterclockwise equations, arbitrary phase,
-tangential speed, start/end continuity, completion, duration, defaults, and
-invalid or conflicting inputs. No NED-to-body-FRD velocity conversion is used
-by this position-setpoint implementation.
+Commanded yaw points exactly at the circle centre. Measured heading error is
+the finite PX4 controller response; it increases with the requested yaw rate.
+Unit tests cover both directions, arbitrary phase, tangential speed, centre
+selection, radial entry, center-facing yaw, entry-to-circle continuity,
+completion, defaults, and invalid or conflicting inputs. No NED-to-body-FRD
+velocity conversion is used by this position-setpoint implementation.
 
 The generated artifacts remain ignored by Git. After the runner reports that
 landing completed and the vehicle disarmed, use the controlled PX4/Gazebo
-shutdown procedure above. The combined `Takeoff` behavior to `Circle` behavior
-sequence remains unverified until Step 10.
+shutdown procedure above. The combined `Takeoff` behavior to a circle behavior
+remains unverified until Step 10; that step will select an explicit side or
+centered circle variant.

@@ -1,7 +1,14 @@
 """VoiceDrone flight behavior and PX4 integration components."""
 
-from .circle import Circle
+from .centered_circle import CenteredCircle
+from .side_circle import SideCircle
 from .takeoff import Takeoff
 from .trajectory import TrajectoryPoint, VehicleState
 
-__all__ = ["Circle", "Takeoff", "TrajectoryPoint", "VehicleState"]
+__all__ = [
+    "CenteredCircle",
+    "SideCircle",
+    "Takeoff",
+    "TrajectoryPoint",
+    "VehicleState",
+]

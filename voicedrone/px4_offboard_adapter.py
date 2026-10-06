@@ -38,7 +38,11 @@ class PX4OffboardAdapter:
     async def wait_until_ready(self, timeout_s: float = 30.0) -> None:
         async def wait_health() -> None:
             async for health in self._drone.telemetry.health():
-                if health.is_local_position_ok and health.is_home_position_ok:
+                if (
+                    health.is_local_position_ok
+                    and health.is_home_position_ok
+                    and health.is_armable
+                ):
                     return
 
         await asyncio.wait_for(wait_health(), timeout=timeout_s)

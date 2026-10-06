@@ -1,12 +1,12 @@
-"""Deterministic local-NED circular trajectory."""
+"""Circular trajectory whose starting position is on its circumference."""
 
 import math
 
 from .trajectory import TrajectoryPoint, VehicleState
 
 
-class Circle:
-    """Fly a level circle initialized from the measured airborne position."""
+class SideCircle:
+    """Fly a level circle beside the measured airborne starting position."""
 
     def __init__(
         self,
@@ -56,7 +56,7 @@ class Circle:
         self.phase = phase
 
     def center(self, reference: VehicleState) -> tuple[float, float]:
-        """Return the N/E center that puts the reference on the circumference."""
+        """Return the center that puts the reference on the circumference."""
 
         return (
             reference.north_m - self.radius * math.cos(self.phase),
@@ -66,7 +66,7 @@ class Circle:
     def point_at(
         self, trajectory_time: float, reference: VehicleState
     ) -> TrajectoryPoint:
-        """Return the circular setpoint at explicit trajectory time."""
+        """Return the center-facing setpoint at explicit trajectory time."""
 
         if not math.isfinite(trajectory_time):
             raise ValueError("trajectory_time must be finite")
@@ -74,17 +74,21 @@ class Circle:
         elapsed = min(max(0.0, trajectory_time), self.duration)
         theta = self.phase + self.angular_velocity * elapsed
         center_north, center_east = self.center(reference)
+        north = center_north + self.radius * math.cos(theta)
+        east = center_east + self.radius * math.sin(theta)
         moving = 0.0 <= trajectory_time < self.duration
         north_velocity = -self.radius * math.sin(theta) * self.angular_velocity
         east_velocity = self.radius * math.cos(theta) * self.angular_velocity
+        yaw = math.atan2(center_east - east, center_north - north)
 
         return TrajectoryPoint(
-            north_m=center_north + self.radius * math.cos(theta),
-            east_m=center_east + self.radius * math.sin(theta),
+            north_m=north,
+            east_m=east,
             down_m=reference.down_m,
             north_m_s=north_velocity if moving else 0.0,
             east_m_s=east_velocity if moving else 0.0,
-            yaw_rad=reference.yaw_rad,
+            yaw_rad=yaw,
+            yaw_rate_rad_s=self.angular_velocity if moving else 0.0,
         )
 
     def is_complete(self, trajectory_time: float) -> bool:

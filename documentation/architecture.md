@@ -12,18 +12,24 @@ commands and exposes measured vehicle state. The SITL runner owns connection,
 arming, action order, logging, error handling, and safe shutdown. In particular:
 
 - `Takeoff` climbs but does not select a later maneuver.
-- `Circle` assumes the vehicle is airborne and never takes off or lands.
+- `SideCircle` and `CenteredCircle` assume the vehicle is airborne and never
+  take off or land.
 - Landing is an explicit runner action.
 
-Future voice phrases such as "circle" and "centripetal" should resolve to the
-same circle behavior without changing its trajectory implementation.
+Future voice phrases such as "circle" and "centripetal" should resolve through
+a command registry to one of these established circle behaviors without
+changing trajectory code. A generic phrase needs a documented default or a
+clarifying question because side and centered circles have different geometry.
 
 The Step 8 implementation uses these small components:
 
 - `voicedrone/trajectory.py`: PX4-independent trajectory and measured-state
   data types.
 - `voicedrone/takeoff.py`: deterministic takeoff generation and completion.
-- `voicedrone/circle.py`: deterministic circle geometry and completion.
+- `voicedrone/side_circle.py`: circle with the airborne start on its
+  circumference.
+- `voicedrone/centered_circle.py`: radial entry followed by a circle centered
+  on the airborne start.
 - `voicedrone/px4_offboard_adapter.py`: the only MAVSDK/PX4 import boundary.
 - `run_sitl.py`: wall-clock execution, action ordering, landing, and cleanup.
 - `voicedrone/sitl_log.py` and `analyze_sitl.py`: CSV capture and analysis.
@@ -63,13 +69,14 @@ Positive angular velocity is clockwise when viewed from above; negative is
 counter-clockwise. Tangential speed magnitude is
 `abs(angular_velocity) * radius`.
 
-`Circle(radius=5.0)` defaults to 1 m/s tangential speed, derives angular
-velocity as `speed / radius`, and defaults to one revolution with duration
+`SideCircle(radius=5.0)` and `CenteredCircle(radius=5.0)` default to 1 m/s
+tangential speed, derive angular
+velocity as `speed / radius`, and default to one revolution with duration
 `2*pi/abs(angular_velocity)`. Explicit angular velocity and duration are
 allowed subject to validation of invalid or conflicting inputs.
 
-The circle initializes from the measured airborne position. For a selected
-phase, its centre is calculated as:
+`SideCircle` initializes with the measured airborne position on its
+circumference. For a selected phase, its centre is:
 
 ```text
 Nc = start_N - R * cos(phase)
@@ -78,19 +85,44 @@ Ec = start_E - R * sin(phase)
 
 Therefore, its first circular setpoint equals the measured start exactly. The
 default phase is zero, so the centre is `radius` metres south of the start and
-positive angular velocity initially moves east. No entry maneuver is needed
-for this geometry. If a different fixed centre is needed later, a separately
-timed entry maneuver must reach the circumference first; entry time must not be
-counted as circular-motion duration.
+positive angular velocity initially moves east. The runner aligns yaw while
+holding that first position before starting circular-motion time.
 
-The current circle holds the measured starting altitude and yaw. Its position
-and analytic velocity are continuous around the circumference, although the
-start changes immediately from hover to the requested tangential velocity.
-PX4 currently receives position/yaw setpoints; logged analytic velocity is not
-sent as feed-forward.
+`CenteredCircle` stores the measured airborne start as its centre. Its entry
+point is behind the initial heading, using `phase = initial_yaw - pi`. It moves
+radially backward to the circumference while holding initial yaw, so its nose
+faces the centre. Entry time and settling are separate from circular-motion
+duration. The entry endpoint and first circle setpoint have identical position
+and yaw.
 
-The SITL verification circle uses radius 10 m, angular velocity 0.1 rad/s,
-speed 1 m/s, and approximately 62.83 seconds of circular motion.
+Both circular segments hold starting altitude and command inward yaw:
+
+```text
+yaw = atan2(Ec - E, Nc - N)
+yaw_rate = angular_velocity
+```
+
+Thus commanded yaw points exactly at the centre in either direction. The
+physical vehicle follows with finite controller tracking error. PX4 receives
+position/yaw setpoints; logged analytic velocity and yaw rate are not sent as
+feed-forward.
+
+The verified side circle uses radius 10 m and angular velocity 0.1 rad/s. The
+verified centered circle uses radius 5 m and angular velocity 0.2 rad/s. Both
+use 1 m/s tangential speed and one revolution.
+
+## Command interface direction
+
+`run_sitl.py` is the typed, validated behavior interface. Its command registry
+currently dispatches `takeoff`, `circle-side`, and `circle-centered`. A future
+text or voice parser should produce structured command names and numeric
+arguments for that registry instead of invoking MAVSDK or shell commands
+directly.
+
+A separate SITL session manager can later launch PX4/Gazebo in WSL, wait for a
+ready state, configure the Windows MAVLink route, execute one or more registry
+commands, require landing and disarm, and shut the simulator down. Process
+orchestration remains separate from trajectory generation and flight safety.
 
 ## Telemetry artifacts
 

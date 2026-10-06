@@ -24,11 +24,17 @@ def save_plot(
     command_north: np.ndarray,
     command_east: np.ndarray,
     title: str,
+    center: tuple[float, float] | None = None,
+    entry: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Path:
     figure, axis = plt.subplots(figsize=(7, 7))
     axis.plot(measured_east, measured_north, label="measured", linewidth=2)
     axis.plot(command_east, command_north, "--", label="commanded")
+    if entry is not None:
+        axis.plot(entry[1], entry[0], ":", label="entry", linewidth=2)
     axis.scatter(measured_east[0], measured_north[0], marker="o", label="start")
+    if center is not None:
+        axis.scatter(center[1], center[0], marker="x", s=80, label="center")
     axis.set_xlabel("East (m)")
     axis.set_ylabel("North (m)")
     axis.set_title(title)
@@ -100,7 +106,11 @@ def angular_rate(
     return float(np.polyfit(trajectory_time, angles, 1)[0])
 
 
-def analyze_circle(path: Path, circle: list[dict[str, str]]) -> Path:
+def analyze_circle(
+    path: Path,
+    circle: list[dict[str, str]],
+    entry: list[dict[str, str]],
+) -> Path:
     trajectory_time = values(circle, "trajectory_time_s")
     north = values(circle, "measured_north_m")
     east = values(circle, "measured_east_m")
@@ -108,11 +118,13 @@ def analyze_circle(path: Path, circle: list[dict[str, str]]) -> Path:
     north_m_s = values(circle, "measured_north_m_s")
     east_m_s = values(circle, "measured_east_m_s")
     yaw = values(circle, "measured_yaw_rad")
+    yaw_rate = values(circle, "measured_yaw_rate_rad_s")
     command_north = values(circle, "command_north_m")
     command_east = values(circle, "command_east_m")
     command_down = values(circle, "command_down_m")
     command_north_m_s = values(circle, "command_north_m_s")
     command_east_m_s = values(circle, "command_east_m_s")
+    command_yaw_rate = values(circle, "command_yaw_rate_rad_s")
 
     center_north, center_east = fit_circle_center(command_north, command_east)
     command_radius = np.hypot(
@@ -124,6 +136,10 @@ def analyze_circle(path: Path, circle: list[dict[str, str]]) -> Path:
     radial_error = measured_radius - np.mean(command_radius)
     altitude_error = down - command_down
     yaw_change = np.unwrap(yaw) - np.unwrap(yaw)[0]
+    expected_yaw = np.arctan2(center_east - east, center_north - north)
+    heading_error = np.arctan2(
+        np.sin(yaw - expected_yaw), np.cos(yaw - expected_yaw)
+    )
 
     print(f"samples={len(circle)}")
     print(f"circle_duration_s={trajectory_time[-1] - trajectory_time[0]:.3f}")
@@ -144,6 +160,34 @@ def analyze_circle(path: Path, circle: list[dict[str, str]]) -> Path:
     print(f"maximum_altitude_error_m={np.max(np.abs(altitude_error)):.3f}")
     print(f"altitude_range_m={np.ptp(down):.3f}")
     print(f"maximum_absolute_yaw_change_rad={np.max(np.abs(yaw_change)):.3f}")
+    print(f"mean_center_heading_error_rad={np.mean(np.abs(heading_error)):.4f}")
+    print(f"maximum_center_heading_error_rad={np.max(np.abs(heading_error)):.4f}")
+    print(f"commanded_mean_yaw_rate_rad_s={np.mean(command_yaw_rate):.4f}")
+    print(f"measured_mean_yaw_rate_rad_s={np.mean(yaw_rate):.4f}")
+
+    entry_plot: tuple[np.ndarray, np.ndarray] | None = None
+    if entry:
+        entry_north = values(entry, "measured_north_m")
+        entry_east = values(entry, "measured_east_m")
+        entry_yaw = values(entry, "measured_yaw_rad")
+        entry_radius = np.hypot(
+            entry_north - center_north, entry_east - center_east
+        )
+        valid = entry_radius > 0.5
+        if np.any(valid):
+            entry_expected_yaw = np.arctan2(
+                center_east - entry_east[valid],
+                center_north - entry_north[valid],
+            )
+            entry_heading_error = np.arctan2(
+                np.sin(entry_yaw[valid] - entry_expected_yaw),
+                np.cos(entry_yaw[valid] - entry_expected_yaw),
+            )
+            print(
+                "maximum_entry_center_heading_error_rad="
+                f"{np.max(np.abs(entry_heading_error)):.4f}"
+            )
+        entry_plot = entry_north, entry_east
 
     return save_plot(
         path,
@@ -152,6 +196,8 @@ def analyze_circle(path: Path, circle: list[dict[str, str]]) -> Path:
         command_north,
         command_east,
         "SITL circle: top-down local N/E",
+        center=(center_north, center_east),
+        entry=entry_plot,
     )
 
 
@@ -160,7 +206,8 @@ def analyze(path: Path) -> Path:
         rows = list(csv.DictReader(file))
     circle = [row for row in rows if row["phase"] == "circle"]
     if circle:
-        return analyze_circle(path, circle)
+        entry = [row for row in rows if row["phase"] == "circle_entry"]
+        return analyze_circle(path, circle, entry)
     takeoff = [row for row in rows if row["phase"] == "takeoff"]
     if takeoff:
         return analyze_takeoff(path, takeoff)
