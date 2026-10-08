@@ -5,7 +5,8 @@ import asyncio
 import math
 import time
 
-from voicedrone.centered_circle import CenteredCircle
+from voicedrone.circle import Circle
+from voicedrone.circle_centripetal import CircleCentripetal
 from voicedrone.px4_offboard_adapter import PX4OffboardAdapter
 from voicedrone.side_circle import SideCircle
 from voicedrone.sitl_log import SitlLogger
@@ -168,6 +169,7 @@ async def execute_circle(
     behavior: SideCircle,
     reference: VehicleState,
     label: str,
+    closure_timeout: float,
 ) -> TrajectoryPoint:
     center_north, center_east = behavior.center(reference)
     print(
@@ -185,8 +187,39 @@ async def execute_circle(
         await adapter.send(command)
         log.write(trajectory_time, "circle", command, adapter.state())
         if behavior.is_complete(trajectory_time):
-            print(f"{label} complete")
-            return command
+            break
+        await asyncio.sleep(0.05)
+
+    # The requested revolution is complete. Hold its endpoint until the
+    # measured vehicle catches up; this time is separate from circle duration.
+    command = behavior.point_at(behavior.duration, reference)
+    closure_started = time.monotonic()
+    settled_since: float | None = None
+    while True:
+        now = time.monotonic()
+        await adapter.send(command)
+        measured = adapter.state()
+        log.write(now - closure_started, "circle_closure", command, measured)
+        position_error = math.hypot(
+            measured.north_m - command.north_m,
+            measured.east_m - command.east_m,
+        )
+        horizontal_speed = math.hypot(
+            measured.north_m_s, measured.east_m_s
+        )
+        settled = position_error <= 0.15 and horizontal_speed <= 0.2
+        if settled:
+            settled_since = now if settled_since is None else settled_since
+            if now - settled_since >= 0.5:
+                print(
+                    f"{label} complete: endpoint error={position_error:.3f} m, "
+                    f"closure time={now - closure_started:.3f} s"
+                )
+                return command
+        else:
+            settled_since = None
+        if now - closure_started > closure_timeout:
+            raise TimeoutError(f"{label} did not settle at its starting position")
         await asyncio.sleep(0.05)
 
 
@@ -226,7 +259,7 @@ async def run_side_circle(args: argparse.Namespace) -> None:
             await adapter.start_offboard()
             await align_side_circle_yaw(adapter, log, command)
             command = await execute_circle(
-                adapter, log, behavior, reference, "Side circle"
+                adapter, log, behavior, reference, "Side circle", args.closure_timeout
             )
             completed = True
         finally:
@@ -241,7 +274,8 @@ async def run_side_circle(args: argparse.Namespace) -> None:
 
 
 async def run_centered_circle(args: argparse.Namespace) -> None:
-    behavior = CenteredCircle(
+    behavior_class = CircleCentripetal if args.behavior == "circle_centripetal" else Circle
+    behavior = behavior_class(
         radius=args.radius,
         speed=args.speed,
         angular_velocity=args.angular_velocity,
@@ -252,7 +286,7 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
     armed = False
     completed = False
 
-    with SitlLogger("circle_centered") as log:
+    with SitlLogger(args.behavior) as log:
         print(f"Log: {log.path}")
         try:
             await adapter.connect()
@@ -275,7 +309,7 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
             await adapter.send(command)
             await adapter.start_offboard()
             print(
-                "Centered circle entry: "
+                f"{args.behavior} entry: "
                 f"distance={behavior.radius:.3f} m, "
                 f"speed={behavior.entry_speed:.3f} m/s, "
                 f"duration={behavior.entry_duration:.3f} s"
@@ -324,7 +358,8 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
                 log,
                 circle,
                 circumference_reference,
-                "Centered circle",
+                args.behavior,
+                args.closure_timeout,
             )
             completed = True
         finally:
@@ -335,7 +370,7 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
                 await adapter.close()
 
     if not completed:
-        raise RuntimeError("centered circle behavior did not complete")
+        raise RuntimeError(f"{args.behavior} behavior did not complete")
 
 
 def parse_args() -> argparse.Namespace:
@@ -359,23 +394,27 @@ def parse_args() -> argparse.Namespace:
     circle_side.add_argument("--phase", type=float, default=0.0)
     circle_side.add_argument("--setup-altitude", type=float, default=5.0)
     circle_side.add_argument("--setup-timeout", type=float, default=30.0)
+    circle_side.add_argument("--closure-timeout", type=float, default=15.0)
     circle_side.add_argument(
         "--connection", default="udpin://0.0.0.0:14540"
     )
-    circle_centered = subparsers.add_parser(
-        "circle-centered", help="center circle on airborne start, then land"
-    )
-    circle_centered.add_argument("--radius", type=float, default=10.0)
-    circle_centered.add_argument("--speed", type=float, default=1.0)
-    circle_centered.add_argument("--angular-velocity", type=float)
-    circle_centered.add_argument("--duration", type=float)
-    circle_centered.add_argument("--entry-speed", type=float, default=1.0)
-    circle_centered.add_argument("--entry-timeout", type=float, default=15.0)
-    circle_centered.add_argument("--setup-altitude", type=float, default=5.0)
-    circle_centered.add_argument("--setup-timeout", type=float, default=30.0)
-    circle_centered.add_argument(
-        "--connection", default="udpin://0.0.0.0:14540"
-    )
+    for name, description in (
+        ("circle_centripetal", "circle around airborne start while facing center"),
+        ("circle", "circle around airborne start while holding starting yaw"),
+    ):
+        circle_parser = subparsers.add_parser(name, help=description)
+        circle_parser.add_argument("--radius", type=float, default=10.0)
+        circle_parser.add_argument("--speed", type=float, default=1.0)
+        circle_parser.add_argument("--angular-velocity", type=float)
+        circle_parser.add_argument("--duration", type=float)
+        circle_parser.add_argument("--entry-speed", type=float, default=1.0)
+        circle_parser.add_argument("--entry-timeout", type=float, default=15.0)
+        circle_parser.add_argument("--setup-altitude", type=float, default=5.0)
+        circle_parser.add_argument("--setup-timeout", type=float, default=30.0)
+        circle_parser.add_argument("--closure-timeout", type=float, default=15.0)
+        circle_parser.add_argument(
+            "--connection", default="udpin://0.0.0.0:14540"
+        )
     return parser.parse_args()
 
 
@@ -384,7 +423,8 @@ def main() -> None:
     command_runners = {
         "takeoff": run_takeoff,
         "circle-side": run_side_circle,
-        "circle-centered": run_centered_circle,
+        "circle_centripetal": run_centered_circle,
+        "circle": run_centered_circle,
     }
     asyncio.run(command_runners[args.behavior](args))
 

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from voicedrone.centered_circle import CenteredCircle
+from voicedrone.circle_centripetal import CircleCentripetal
 from voicedrone.trajectory import VehicleState
 
 
@@ -19,13 +19,13 @@ def wrapped_difference(first: float, second: float) -> float:
 
 
 def test_center_is_the_initial_vehicle_position() -> None:
-    circle = CenteredCircle(radius=5.0)
+    circle = CircleCentripetal(radius=5.0)
 
     assert circle.center(REFERENCE) == (REFERENCE.north_m, REFERENCE.east_m)
 
 
 def test_entry_moves_behind_vehicle_and_keeps_head_on_center() -> None:
-    circle = CenteredCircle(radius=5.0, entry_speed=1.0)
+    circle = CircleCentripetal(radius=5.0, entry_speed=1.0)
     halfway = circle.entry_point_at(circle.entry_duration / 2.0, REFERENCE)
     center_north, center_east = circle.center(REFERENCE)
     expected_yaw = math.atan2(
@@ -41,7 +41,7 @@ def test_entry_moves_behind_vehicle_and_keeps_head_on_center() -> None:
 
 
 def test_entry_endpoint_is_on_requested_circumference() -> None:
-    circle = CenteredCircle(radius=10.0, entry_speed=2.0)
+    circle = CircleCentripetal(radius=10.0, entry_speed=2.0)
     endpoint = circle.entry_point_at(circle.entry_duration, REFERENCE)
 
     assert circle.entry_duration == pytest.approx(5.0)
@@ -54,7 +54,7 @@ def test_entry_endpoint_is_on_requested_circumference() -> None:
 
 
 def test_entry_to_circle_has_no_position_or_yaw_jump() -> None:
-    behavior = CenteredCircle(radius=10.0, angular_velocity=0.1)
+    behavior = CircleCentripetal(radius=10.0, angular_velocity=0.1)
     endpoint = behavior.entry_point_at(behavior.entry_duration, REFERENCE)
     circumference_reference = behavior.circumference_reference(REFERENCE)
     circle = behavior.side_circle(REFERENCE)
@@ -74,7 +74,7 @@ def test_entry_to_circle_has_no_position_or_yaw_jump() -> None:
 def test_circular_segment_always_faces_original_center(
     angular_velocity: float, fraction: float
 ) -> None:
-    behavior = CenteredCircle(radius=5.0, angular_velocity=angular_velocity)
+    behavior = CircleCentripetal(radius=5.0, angular_velocity=angular_velocity)
     reference = behavior.circumference_reference(REFERENCE)
     circle = behavior.side_circle(REFERENCE)
     point = circle.point_at(circle.duration * fraction, reference)
@@ -88,7 +88,7 @@ def test_circular_segment_always_faces_original_center(
 
 
 def test_entry_completion_and_clamping() -> None:
-    circle = CenteredCircle(radius=5.0, entry_speed=2.0)
+    circle = CircleCentripetal(radius=5.0, entry_speed=2.0)
 
     assert not circle.is_entry_complete(2.499)
     assert circle.is_entry_complete(2.5)
@@ -100,11 +100,11 @@ def test_entry_completion_and_clamping() -> None:
 @pytest.mark.parametrize("entry_speed", [0.0, -1.0, math.inf, math.nan])
 def test_invalid_entry_speed_is_rejected(entry_speed: float) -> None:
     with pytest.raises(ValueError):
-        CenteredCircle(entry_speed=entry_speed)
+        CircleCentripetal(entry_speed=entry_speed)
 
 
 def test_nonfinite_entry_time_is_rejected() -> None:
-    circle = CenteredCircle()
+    circle = CircleCentripetal()
 
     with pytest.raises(ValueError):
         circle.entry_point_at(math.nan, REFERENCE)

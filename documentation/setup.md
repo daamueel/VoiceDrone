@@ -228,76 +228,98 @@ above. From a Windows PowerShell at the repository root:
 conda activate voicedrone
 python -m pytest -q
 python run_sitl.py circle-side --radius 10.0 --speed 1.0 --angular-velocity 0.1
-python run_sitl.py circle-centered --radius 5.0 --speed 1.0 --angular-velocity 0.2
+python run_sitl.py circle_centripetal --radius 5.0 --speed 1.0 --angular-velocity 0.2
+python run_sitl.py circle --radius 5.0 --speed 1.0 --angular-velocity 0.2
 ```
 
-For each independent test, the runner uses PX4's action takeoff to establish a
-settled airborne state at approximately 5 m. That setup is not part of either
-circle behavior. The runner exits offboard mode, invokes its separate landing
-action, waits for disarm, and closes MAVSDK after each flight.
+Run one command per flight. For each independent test, the runner uses PX4's
+action takeoff to establish a settled airborne state at approximately 5 m.
+That setup is not part of a circle behavior. The runner exits offboard mode,
+invokes its separate landing action, waits for disarm, and closes MAVSDK.
 
 `circle-side` holds the measured airborne position while aligning the nose on
-its offset centre, then starts circular-motion time. `circle-centered` treats
-the measured airborne position as its centre, performs a separately timed
-radial entry behind the initial heading, settles on the circumference, and
-then starts circular-motion time. Its entry is shown in the generated plot.
+its offset centre, then starts circular-motion time. `circle_centripetal` and
+`circle` both treat the measured airborne position as their centre, perform a
+separately timed radial entry behind the initial heading, settle on the
+circumference, and then start circular-motion time. `circle_centripetal` faces
+the centre throughout the circular segment; `circle` holds starting yaw and
+looks in one fixed direction. Both hold yaw during radial entry, so the nose
+points at the centre at the beginning of the circle. The entry is shown in the
+generated plot.
 
-Both variants can be used with radius alone. They default to 1 m/s, derive
+All variants can be used with radius alone. They default to 1 m/s, derive
 positive angular velocity as `speed / radius`, and derive one revolution of
 duration as `2*pi / abs(angular_velocity)`. Negative angular velocity selects
 counterclockwise motion. Explicit speed and angular velocity may be combined
 only when `speed == abs(angular_velocity) * radius`.
 
+The circular-motion duration excludes entry and endpoint closure. At the end
+of the commanded revolution, the runner holds the endpoint until the measured
+position is within 0.15 m, horizontal speed is at most 0.2 m/s, and both
+conditions persist for 0.5 s. The default closure timeout is 15 s and can be
+adjusted with `--closure-timeout`. On success, the runner then lands separately;
+on timeout, its safety cleanup also commands landing. PX4 controller lag may
+leave the measured revolution short of the start point
+at the instant the commanded revolution ends; this is why closure is logged
+and plotted separately.
+
 Analyze the path printed by the runner:
 
 ```powershell
 python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_side.csv
-python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_centered.csv
+python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_centripetal.csv
+python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle.csv
 ```
 
-The verified artifacts were:
+The new verified centered-circle artifacts are:
 
 ```text
-logs\sitl_20261006T193151Z_circle_side.csv
-logs\sitl_20261006T193151Z_circle_side_ne.png
-logs\sitl_20261006T193727Z_circle_centered.csv
-logs\sitl_20261006T193727Z_circle_centered_ne.png
+logs\sitl_20261008T000110Z_circle_centripetal.csv
+logs\sitl_20261008T000110Z_circle_centripetal_ne.png
+logs\sitl_20261008T000246Z_circle.csv
+logs\sitl_20261008T000246Z_circle_ne.png
 ```
 
-The observed results were:
+The previously verified side-circle artifacts remain
+`sitl_20261006T193151Z_circle_side.csv` and its matching `_ne.png` plot. The
+shared endpoint-hold change has not been separately rerun for `circle-side`.
+The old `sitl_20261006T193727Z_circle_centered.csv` is historical: its commanded
+path completed one revolution, but its measured endpoint remained 1.06 m
+from its measured starting point because the runner landed without endpoint
+closure. That error was controller lag, not a missing segment in the trajectory
+equation; it is now explicitly accounted for by the runner.
+
+The observed centered-circle results were:
 
 ```text
-unit tests:                              60 passed
-
-side commanded/measured mean radius:     10.000 / 9.988 m
-side radial RMSE:                         0.028 m
-side commanded/measured mean speed:       0.999 / 0.980 m/s
-side commanded/measured angular velocity: 0.1000 / 0.0999 rad/s
-side mean/max centre heading error:       0.0675 / 0.0847 rad
-side maximum altitude error:              0.026 m
-
-centered entry radius:                    5.000 m
-centered entry-to-circle position jump:   0.000000000 m
-centered entry-to-circle yaw jump:        0.000000000 rad
-centered commanded/measured mean radius:  5.000 / 4.993 m
-centered radial RMSE:                      0.022 m
-centered commanded/measured mean speed:    0.999 / 0.962 m/s
-centered commanded/measured angular rate: 0.2000 / 0.1992 rad/s
-centered mean/max centre heading error:    0.1299 / 0.1671 rad
-centered max entry centre heading error:   0.0573 rad
-centered maximum altitude error:           0.020 m
-centered final mode / armed state:         HOLD / false
+unit tests:                              72 passed
+circle_centripetal commanded/measured radius: 5.000 / 4.993 m
+circle_centripetal radial RMSE:               0.021 m
+circle_centripetal commanded/measured omega:  0.2000 / 0.1996 rad/s
+circle_centripetal mean centre-heading error: 0.1238 rad
+circle_centripetal measured endpoint gap:     1.000 m
+circle_centripetal endpoint hold:             2.078 s
+circle_centripetal final endpoint error:      0.144 m
+circle commanded/measured radius:             5.000 / 5.011 m
+circle radial RMSE:                            0.021 m
+circle commanded/measured omega:               0.2000 / 0.1989 rad/s
+circle maximum yaw change:                     0.010 rad
+circle maximum yaw-hold error:                 0.0079 rad
+circle measured endpoint gap:                  1.067 m
+circle endpoint hold:                          2.141 s
+circle final endpoint error:                   0.110 m
+both final armed state:                        false
 ```
 
-Commanded yaw points exactly at the circle centre. Measured heading error is
-the finite PX4 controller response; it increases with the requested yaw rate.
+The new plots distinguish commanded circle, measured circle, radial entry,
+and endpoint hold. The measured path ends close to its start after closure,
+but a perfect geometric trace is not expected from the physical simulation.
 Unit tests cover both directions, arbitrary phase, tangential speed, centre
-selection, radial entry, center-facing yaw, entry-to-circle continuity,
-completion, defaults, and invalid or conflicting inputs. No NED-to-body-FRD
-velocity conversion is used by this position-setpoint implementation.
+selection, radial entry, both yaw conventions, continuity, completion,
+defaults, and invalid or conflicting inputs. No NED-to-body-FRD velocity
+conversion is used by this position-setpoint implementation.
 
 The generated artifacts remain ignored by Git. After the runner reports that
 landing completed and the vehicle disarmed, use the controlled PX4/Gazebo
 shutdown procedure above. The combined `Takeoff` behavior to a circle behavior
-remains unverified until Step 10; that step will select an explicit side or
-centered circle variant.
+remains unverified until Step 10; that step must select an explicit variant.

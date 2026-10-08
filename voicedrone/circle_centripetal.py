@@ -1,4 +1,4 @@
-"""Circle centered on the vehicle's position before a radial entry."""
+"""Center-facing circle around the vehicle's position before radial entry."""
 
 import math
 
@@ -6,8 +6,8 @@ from .side_circle import SideCircle
 from .trajectory import TrajectoryPoint, VehicleState
 
 
-class CenteredCircle:
-    """Enter a circumference behind the vehicle, then circle its start point."""
+class CircleCentripetal:
+    """Enter a circumference behind the vehicle, then face its start point."""
 
     def __init__(
         self,

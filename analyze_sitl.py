@@ -26,12 +26,15 @@ def save_plot(
     title: str,
     center: tuple[float, float] | None = None,
     entry: tuple[np.ndarray, np.ndarray] | None = None,
+    closure: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Path:
     figure, axis = plt.subplots(figsize=(7, 7))
     axis.plot(measured_east, measured_north, label="measured", linewidth=2)
     axis.plot(command_east, command_north, "--", label="commanded")
     if entry is not None:
         axis.plot(entry[1], entry[0], ":", label="entry", linewidth=2)
+    if closure is not None:
+        axis.plot(closure[1], closure[0], label="endpoint hold", linewidth=2)
     axis.scatter(measured_east[0], measured_north[0], marker="o", label="start")
     if center is not None:
         axis.scatter(center[1], center[0], marker="x", s=80, label="center")
@@ -40,7 +43,7 @@ def save_plot(
     axis.set_title(title)
     axis.axis("equal")
     axis.grid(True)
-    axis.legend()
+    axis.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
     figure.tight_layout()
 
     output = path.with_name(f"{path.stem}_ne.png")
@@ -110,6 +113,7 @@ def analyze_circle(
     path: Path,
     circle: list[dict[str, str]],
     entry: list[dict[str, str]],
+    closure: list[dict[str, str]],
 ) -> Path:
     trajectory_time = values(circle, "trajectory_time_s")
     north = values(circle, "measured_north_m")
@@ -125,6 +129,7 @@ def analyze_circle(
     command_north_m_s = values(circle, "command_north_m_s")
     command_east_m_s = values(circle, "command_east_m_s")
     command_yaw_rate = values(circle, "command_yaw_rate_rad_s")
+    command_yaw = values(circle, "command_yaw_rad")
 
     center_north, center_east = fit_circle_center(command_north, command_east)
     command_radius = np.hypot(
@@ -160,10 +165,33 @@ def analyze_circle(
     print(f"maximum_altitude_error_m={np.max(np.abs(altitude_error)):.3f}")
     print(f"altitude_range_m={np.ptp(down):.3f}")
     print(f"maximum_absolute_yaw_change_rad={np.max(np.abs(yaw_change)):.3f}")
-    print(f"mean_center_heading_error_rad={np.mean(np.abs(heading_error)):.4f}")
-    print(f"maximum_center_heading_error_rad={np.max(np.abs(heading_error)):.4f}")
+    if np.max(np.abs(command_yaw_rate)) > 1e-6:
+        print(f"mean_center_heading_error_rad={np.mean(np.abs(heading_error)):.4f}")
+        print(f"maximum_center_heading_error_rad={np.max(np.abs(heading_error)):.4f}")
+    else:
+        yaw_hold_error = np.arctan2(
+            np.sin(yaw - command_yaw), np.cos(yaw - command_yaw)
+        )
+        print(f"maximum_yaw_hold_error_rad={np.max(np.abs(yaw_hold_error)):.4f}")
     print(f"commanded_mean_yaw_rate_rad_s={np.mean(command_yaw_rate):.4f}")
     print(f"measured_mean_yaw_rate_rad_s={np.mean(yaw_rate):.4f}")
+
+    print(
+        "measured_revolution_endpoint_gap_m="
+        f"{np.hypot(north[-1] - north[0], east[-1] - east[0]):.3f}"
+    )
+
+    closure_plot: tuple[np.ndarray, np.ndarray] | None = None
+    if closure:
+        closure_north = values(closure, "measured_north_m")
+        closure_east = values(closure, "measured_east_m")
+        closure_time = values(closure, "trajectory_time_s")
+        print(f"endpoint_hold_duration_s={closure_time[-1] - closure_time[0]:.3f}")
+        print(
+            "final_endpoint_error_m="
+            f"{np.hypot(closure_north[-1] - command_north[-1], closure_east[-1] - command_east[-1]):.3f}"
+        )
+        closure_plot = closure_north, closure_east
 
     entry_plot: tuple[np.ndarray, np.ndarray] | None = None
     if entry:
@@ -198,6 +226,7 @@ def analyze_circle(
         "SITL circle: top-down local N/E",
         center=(center_north, center_east),
         entry=entry_plot,
+        closure=closure_plot,
     )
 
 
@@ -207,7 +236,8 @@ def analyze(path: Path) -> Path:
     circle = [row for row in rows if row["phase"] == "circle"]
     if circle:
         entry = [row for row in rows if row["phase"] == "circle_entry"]
-        return analyze_circle(path, circle, entry)
+        closure = [row for row in rows if row["phase"] == "circle_closure"]
+        return analyze_circle(path, circle, entry, closure)
     takeoff = [row for row in rows if row["phase"] == "takeoff"]
     if takeoff:
         return analyze_takeoff(path, takeoff)
