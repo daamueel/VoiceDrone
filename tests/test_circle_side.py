@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from voicedrone.side_circle import SideCircle
-from voicedrone.trajectory import VehicleState
+from flight.circle_side import CircleSide
+from flight.trajectory import VehicleState
 
 
 REFERENCE = VehicleState(
@@ -26,7 +26,7 @@ def heading_error(point: object, center: tuple[float, float]) -> float:
 
 
 def test_radius_only_defaults_to_one_metre_per_second_and_one_revolution() -> None:
-    circle = SideCircle(radius=5.0)
+    circle = CircleSide(radius=5.0)
 
     assert circle.speed == pytest.approx(1.0)
     assert circle.angular_velocity == pytest.approx(0.2)
@@ -34,7 +34,7 @@ def test_radius_only_defaults_to_one_metre_per_second_and_one_revolution() -> No
 
 
 def test_first_point_is_exactly_the_airborne_reference() -> None:
-    circle = SideCircle(radius=10.0, phase=0.8)
+    circle = CircleSide(radius=10.0, phase=0.8)
 
     first = circle.point_at(0.0, REFERENCE)
 
@@ -48,7 +48,7 @@ def test_first_point_is_exactly_the_airborne_reference() -> None:
 def test_head_always_faces_center(
     angular_velocity: float, fraction: float
 ) -> None:
-    circle = SideCircle(radius=5.0, angular_velocity=angular_velocity, phase=0.4)
+    circle = CircleSide(radius=5.0, angular_velocity=angular_velocity, phase=0.4)
     point = circle.point_at(circle.duration * fraction, REFERENCE)
 
     assert heading_error(point, circle.center(REFERENCE)) == pytest.approx(0.0)
@@ -56,7 +56,7 @@ def test_head_always_faces_center(
 
 
 def test_positive_angular_velocity_is_clockwise_from_above() -> None:
-    circle = SideCircle(radius=5.0, angular_velocity=0.5)
+    circle = CircleSide(radius=5.0, angular_velocity=0.5)
     quarter_turn_time = (math.pi / 2.0) / circle.angular_velocity
 
     center_north, center_east = circle.center(REFERENCE)
@@ -67,7 +67,7 @@ def test_positive_angular_velocity_is_clockwise_from_above() -> None:
 
 
 def test_negative_angular_velocity_is_counterclockwise_from_above() -> None:
-    circle = SideCircle(radius=5.0, angular_velocity=-0.5)
+    circle = CircleSide(radius=5.0, angular_velocity=-0.5)
     quarter_turn_time = (math.pi / 2.0) / abs(circle.angular_velocity)
 
     center_north, center_east = circle.center(REFERENCE)
@@ -78,7 +78,7 @@ def test_negative_angular_velocity_is_counterclockwise_from_above() -> None:
 
 
 def test_equations_respect_explicit_phase() -> None:
-    circle = SideCircle(radius=4.0, angular_velocity=0.25, phase=math.pi / 3.0)
+    circle = CircleSide(radius=4.0, angular_velocity=0.25, phase=math.pi / 3.0)
     trajectory_time = 2.0
     theta = circle.phase + circle.angular_velocity * trajectory_time
     center_north, center_east = circle.center(REFERENCE)
@@ -97,7 +97,7 @@ def test_equations_respect_explicit_phase() -> None:
 def test_tangential_speed_matches_radius_times_angular_speed(
     angular_velocity: float,
 ) -> None:
-    circle = SideCircle(radius=5.0, angular_velocity=angular_velocity)
+    circle = CircleSide(radius=5.0, angular_velocity=angular_velocity)
     point = circle.point_at(3.0, REFERENCE)
 
     speed = math.hypot(point.north_m_s, point.east_m_s)
@@ -105,7 +105,7 @@ def test_tangential_speed_matches_radius_times_angular_speed(
 
 
 def test_position_and_yaw_are_continuous_at_start_and_end() -> None:
-    circle = SideCircle(radius=10.0, angular_velocity=0.1)
+    circle = CircleSide(radius=10.0, angular_velocity=0.1)
     epsilon = 1e-6
 
     start = circle.point_at(0.0, REFERENCE)
@@ -127,7 +127,7 @@ def test_position_and_yaw_are_continuous_at_start_and_end() -> None:
 
 
 def test_completion_and_explicit_duration() -> None:
-    circle = SideCircle(radius=5.0, angular_velocity=0.2, duration=7.5)
+    circle = CircleSide(radius=5.0, angular_velocity=0.2, duration=7.5)
 
     assert not circle.is_complete(7.499)
     assert circle.is_complete(7.5)
@@ -135,7 +135,7 @@ def test_completion_and_explicit_duration() -> None:
 
 
 def test_consistent_explicit_speed_and_angular_velocity_are_allowed() -> None:
-    circle = SideCircle(radius=10.0, speed=1.0, angular_velocity=0.1)
+    circle = CircleSide(radius=10.0, speed=1.0, angular_velocity=0.1)
 
     assert circle.speed == pytest.approx(1.0)
     assert circle.duration == pytest.approx(20.0 * math.pi)
@@ -143,7 +143,7 @@ def test_consistent_explicit_speed_and_angular_velocity_are_allowed() -> None:
 
 def test_conflicting_speed_and_angular_velocity_are_rejected() -> None:
     with pytest.raises(ValueError, match="conflicts"):
-        SideCircle(radius=10.0, speed=2.0, angular_velocity=0.1)
+        CircleSide(radius=10.0, speed=2.0, angular_velocity=0.1)
 
 
 @pytest.mark.parametrize(
@@ -163,11 +163,11 @@ def test_conflicting_speed_and_angular_velocity_are_rejected() -> None:
 )
 def test_invalid_parameters_are_rejected(kwargs: dict[str, float]) -> None:
     with pytest.raises(ValueError):
-        SideCircle(**kwargs)
+        CircleSide(**kwargs)
 
 
 def test_nonfinite_trajectory_time_is_rejected() -> None:
-    circle = SideCircle()
+    circle = CircleSide()
 
     with pytest.raises(ValueError):
         circle.point_at(math.nan, REFERENCE)

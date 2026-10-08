@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from voicedrone.circle import Circle
-from voicedrone.trajectory import VehicleState
+from flight.circle import Circle
+from flight.trajectory import VehicleState
 
 
 REFERENCE = VehicleState(north_m=12.0, east_m=-3.0, down_m=-5.0, yaw_rad=0.7)
@@ -16,7 +16,7 @@ def test_centered_circle_holds_starting_yaw(
 ) -> None:
     behavior = Circle(radius=5.0, angular_velocity=angular_velocity)
     circumference = behavior.circumference_reference(REFERENCE)
-    circle = behavior.side_circle(REFERENCE)
+    circle = behavior.circle_segment(REFERENCE)
     point = circle.point_at(circle.duration * fraction, circumference)
 
     assert point.yaw_rad == pytest.approx(REFERENCE.yaw_rad)
@@ -31,13 +31,26 @@ def test_centered_circle_holds_starting_yaw(
 def test_entry_and_first_circle_point_share_position_and_yaw() -> None:
     behavior = Circle(radius=5.0)
     endpoint = behavior.entry_point_at(behavior.entry_duration, REFERENCE)
-    first = behavior.side_circle(REFERENCE).point_at(
+    first = behavior.circle_segment(REFERENCE).point_at(
         0.0, behavior.circumference_reference(REFERENCE)
     )
 
     assert first.north_m == pytest.approx(endpoint.north_m)
     assert first.east_m == pytest.approx(endpoint.east_m)
     assert first.yaw_rad == pytest.approx(endpoint.yaw_rad)
+
+
+def test_circle_endpoint_and_return_share_position_and_fixed_yaw() -> None:
+    behavior = Circle(radius=5.0)
+    circumference = behavior.circumference_reference(REFERENCE)
+    final = behavior.circle_segment(REFERENCE).point_at(
+        behavior.duration, circumference
+    )
+    return_start = behavior.return_point_at(0.0, REFERENCE)
+
+    assert return_start.north_m == pytest.approx(final.north_m)
+    assert return_start.east_m == pytest.approx(final.east_m)
+    assert return_start.yaw_rad == pytest.approx(final.yaw_rad)
 
 
 def test_radius_only_uses_one_metre_per_second_and_one_revolution() -> None:

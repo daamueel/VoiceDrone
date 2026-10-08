@@ -5,7 +5,7 @@ import math
 from .trajectory import TrajectoryPoint, VehicleState
 
 
-class SideCircle:
+class CircleSide:
     """Fly a level circle beside the measured airborne starting position."""
 
     def __init__(

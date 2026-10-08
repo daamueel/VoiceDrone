@@ -22,3 +22,7 @@ ROS 2, and real hardware are later work.
 See [documentation/setup.md](documentation/setup.md) for the verified toolchain
 and [documentation/architecture.md](documentation/architecture.md) for the
 coordinate and component design.
+
+Python source is organized under `src/`: Milestone 1 flight code lives in
+`src/flight`, while `src/voice`, `src/cv`, and `src/rl` are empty package
+placeholders for later milestones. Tests remain under `tests/`.

@@ -26,6 +26,7 @@ From an Anaconda-enabled shell:
 ```powershell
 conda activate voicedrone
 python -m pip install -r documentation\requirements.txt
+python -m pip install --no-deps --no-build-isolation -e .
 python -m pip check
 python -m pytest
 ```
@@ -34,8 +35,14 @@ From an ordinary PowerShell, where `conda` may not be on `PATH`:
 
 ```powershell
 D:\Anaconda3\Scripts\conda.exe run -n voicedrone python -m pip install -r documentation\requirements.txt
+D:\Anaconda3\envs\voicedrone\python.exe -m pip install --no-deps --no-build-isolation -e .
 D:\Anaconda3\Scripts\conda.exe run -n voicedrone python -m pytest
 ```
+
+The editable install registers the packages under `src/` without copying the
+source. It also provides `voicedrone-sitl` and `voicedrone-analyze` while the
+Conda environment is active. Re-run the editable install only if packaging
+metadata changes; ordinary source edits are picked up immediately.
 
 An unactivated shell may resolve `python` to MSYS2 Python 3.12, so always
 activate the environment or use `conda run` explicitly.
@@ -170,27 +177,32 @@ environment and run the independent takeoff test:
 ```powershell
 conda activate voicedrone
 python -m pytest -q
-python run_sitl.py takeoff --target-altitude 5.0
+python -m flight.run_sitl takeoff --target-altitude 5.0
 ```
 
 The behavior generates a one metre-per-second vertical position ramp from its
-measured starting NED position. North, east, and yaw remain fixed. Completion
-requires the measured down position to be within 0.25 m of
-`start_down - target_altitude`. After completion, the runner—not `Takeoff`—uses
-the separate MAVSDK land action and waits for disarm.
+measured starting NED position. North, east, and yaw remain fixed. The target
+is `start_down - target_altitude` because upward motion is negative NED down.
+The pure behavior's completion band remains 0.25 m, but the runner no longer
+accepts one qualifying sample. It waits until nominal trajectory duration has
+elapsed, altitude is within 0.25 m, absolute vertical speed is at most 0.2 m/s,
+and those conditions persist for one continuous second. PX4 local-position
+health and an actual finite NED sample are required before flight. After this
+settled completion, the runner—not `Takeoff`—uses the separate MAVSDK land
+action and waits for disarm.
 
 Every run writes a UTC-named CSV under `logs/`. Analyze the path printed by the
 runner to calculate takeoff metrics and create the matching top-down plot:
 
 ```powershell
-python analyze_sitl.py logs\sitl_<UTC-timestamp>_takeoff.csv
+python -m flight.analyze_sitl logs\sitl_<UTC-timestamp>_takeoff.csv
 ```
 
-The verified regression artifacts were:
+The strengthened completion rule was verified with:
 
 ```text
-logs\sitl_20261002T203017Z_takeoff.csv
-logs\sitl_20261002T203017Z_takeoff_ne.png
+logs\sitl_20261008T075314Z_takeoff.csv
+logs\sitl_20261008T075314Z_takeoff_ne.png
 ```
 
 The verified CSV contains commanded and measured local-NED position and
@@ -198,15 +210,15 @@ velocity, yaw, yaw rate, UTC timestamp, trajectory time, execution phase,
 flight mode, and armed state. Its observed results were:
 
 ```text
-unit tests:                  10 passed
+unit tests:                  78 passed
 commanded altitude gain:    5.000 m
-measured altitude gain:     4.753 m
-final vertical error:       0.247 m
-maximum lateral drift:      0.040 m
-peak vertical speed:        2.177 m/s
+measured altitude gain:     4.874 m
+final vertical error:       0.127 m
+final vertical speed:       0.065 m/s
+maximum lateral drift:      0.036 m
+peak vertical speed:        2.191 m/s
 absolute yaw change:        0.000 rad
-takeoff samples:            166
-total samples:              278
+takeoff samples:            184
 final armed state:          false
 ```
 
@@ -227,9 +239,9 @@ above. From a Windows PowerShell at the repository root:
 ```powershell
 conda activate voicedrone
 python -m pytest -q
-python run_sitl.py circle-side --radius 10.0 --speed 1.0 --angular-velocity 0.1
-python run_sitl.py circle_centripetal --radius 5.0 --speed 1.0 --angular-velocity 0.2
-python run_sitl.py circle --radius 5.0 --speed 1.0 --angular-velocity 0.2
+python -m flight.run_sitl circle_side --radius 10.0 --speed 1.0 --angular-velocity 0.1
+python -m flight.run_sitl circle_centripetal --radius 5.0 --speed 1.0 --angular-velocity 0.2
+python -m flight.run_sitl circle --radius 5.0 --speed 1.0 --angular-velocity 0.2
 ```
 
 Run one command per flight. For each independent test, the runner uses PX4's
@@ -237,7 +249,7 @@ action takeoff to establish a settled airborne state at approximately 5 m.
 That setup is not part of a circle behavior. The runner exits offboard mode,
 invokes its separate landing action, waits for disarm, and closes MAVSDK.
 
-`circle-side` holds the measured airborne position while aligning the nose on
+`circle_side` holds the measured airborne position while aligning the nose on
 its offset centre, then starts circular-motion time. `circle_centripetal` and
 `circle` both treat the measured airborne position as their centre, perform a
 separately timed radial entry behind the initial heading, settle on the
@@ -263,57 +275,78 @@ leave the measured revolution short of the start point
 at the instant the commanded revolution ends; this is why closure is logged
 and plotted separately.
 
+For `circle_centripetal` and `circle`, successful closure is followed by a
+radial return to the centered circle's original airborne start. The return
+retraces entry at `--entry-speed`, is not included in circular-motion duration,
+and must settle within 0.15 m at no more than 0.2 m/s for 0.5 s. Only then does
+the runner invoke its separate landing action. `circle_side` already begins and
+ends at its airborne starting point, so it does not need this radial return.
+
 Analyze the path printed by the runner:
 
 ```powershell
-python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_side.csv
-python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle_centripetal.csv
-python analyze_sitl.py logs\sitl_<UTC-timestamp>_circle.csv
+python -m flight.analyze_sitl logs\sitl_<UTC-timestamp>_circle_side.csv
+python -m flight.analyze_sitl logs\sitl_<UTC-timestamp>_circle_centripetal.csv
+python -m flight.analyze_sitl logs\sitl_<UTC-timestamp>_circle.csv
 ```
 
-The new verified centered-circle artifacts are:
+The verified centered-circle return artifacts are:
 
 ```text
-logs\sitl_20261008T000110Z_circle_centripetal.csv
-logs\sitl_20261008T000110Z_circle_centripetal_ne.png
-logs\sitl_20261008T000246Z_circle.csv
-logs\sitl_20261008T000246Z_circle_ne.png
+logs\sitl_20261008T075652Z_circle_centripetal.csv
+logs\sitl_20261008T075652Z_circle_centripetal_ne.png
+logs\sitl_20261008T075140Z_circle.csv
+logs\sitl_20261008T075140Z_circle_ne.png
 ```
 
-The previously verified side-circle artifacts remain
-`sitl_20261006T193151Z_circle_side.csv` and its matching `_ne.png` plot. The
-shared endpoint-hold change has not been separately rerun for `circle-side`.
+The renamed standalone command and endpoint hold were verified with
+`sitl_20261008T081428Z_circle_side.csv` and its matching `_ne.png` plot at
+radius 5 m and angular velocity 0.2 rad/s. The original Milestone 1 radius
+10 m, angular velocity 0.1 rad/s artifact remains
+`sitl_20261006T193151Z_circle_side.csv`.
 The old `sitl_20261006T193727Z_circle_centered.csv` is historical: its commanded
 path completed one revolution, but its measured endpoint remained 1.06 m
 from its measured starting point because the runner landed without endpoint
 closure. That error was controller lag, not a missing segment in the trajectory
 equation; it is now explicitly accounted for by the runner.
 
-The observed centered-circle results were:
+The observed circle results were:
 
 ```text
-unit tests:                              72 passed
-circle_centripetal commanded/measured radius: 5.000 / 4.993 m
-circle_centripetal radial RMSE:               0.021 m
-circle_centripetal commanded/measured omega:  0.2000 / 0.1996 rad/s
-circle_centripetal mean centre-heading error: 0.1238 rad
-circle_centripetal measured endpoint gap:     1.000 m
+unit tests:                              78 passed
+circle_side commanded/measured radius:       5.000 / 5.002 m
+circle_side radial RMSE:                      0.035 m
+circle_side commanded/measured omega:         0.2000 / 0.2001 rad/s
+circle_side final endpoint error:             0.105 m
+circle_side touchdown ground offset:          0.086 m
+circle_centripetal commanded/measured radius: 5.000 / 4.990 m
+circle_centripetal radial RMSE:               0.022 m
+circle_centripetal commanded/measured omega:  0.2000 / 0.1993 rad/s
+circle_centripetal mean centre-heading error: 0.1225 rad
+circle_centripetal measured endpoint gap:     1.043 m
 circle_centripetal endpoint hold:             2.078 s
-circle_centripetal final endpoint error:      0.144 m
-circle commanded/measured radius:             5.000 / 5.011 m
-circle radial RMSE:                            0.021 m
-circle commanded/measured omega:               0.2000 / 0.1989 rad/s
-circle maximum yaw change:                     0.010 rad
-circle maximum yaw-hold error:                 0.0079 rad
+circle_centripetal final endpoint error:      0.110 m
+circle_centripetal return-to-center error:    0.145 m
+circle_centripetal touchdown center offset:   0.074 m
+circle_centripetal touchdown ground offset:   0.069 m
+circle commanded/measured radius:             5.000 / 5.007 m
+circle radial RMSE:                            0.022 m
+circle commanded/measured omega:               0.2000 / 0.1995 rad/s
+circle maximum yaw change:                     0.008 rad
+circle maximum yaw-hold error:                 0.0106 rad
 circle measured endpoint gap:                  1.067 m
-circle endpoint hold:                          2.141 s
-circle final endpoint error:                   0.110 m
+circle endpoint hold:                          2.203 s
+circle final endpoint error:                   0.115 m
+circle return-to-center error:                 0.102 m
+circle touchdown center offset:                0.052 m
+circle touchdown ground offset:                0.069 m
 both final armed state:                        false
 ```
 
 The new plots distinguish commanded circle, measured circle, radial entry,
-and endpoint hold. The measured path ends close to its start after closure,
-but a perfect geometric trace is not expected from the physical simulation.
+endpoint hold, return to start, landing, and touchdown. The measured path ends
+close to its circumference start after closure and then returns to the center;
+a perfect geometric trace is not expected from the physical simulation.
 Unit tests cover both directions, arbitrary phase, tangential speed, centre
 selection, radial entry, both yaw conventions, continuity, completion,
 defaults, and invalid or conflicting inputs. No NED-to-body-FRD velocity

@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from voicedrone.takeoff import Takeoff
-from voicedrone.trajectory import VehicleState
+from flight.takeoff import Takeoff
+from flight.trajectory import VehicleState
 
 
 REFERENCE = VehicleState(north_m=12.0, east_m=-3.0, down_m=2.0, yaw_rad=0.7)
@@ -59,6 +59,24 @@ def test_takeoff_completion_uses_measured_down_and_tolerance() -> None:
     )
 
 
+def test_takeoff_settled_requires_low_vertical_speed_and_valid_position() -> None:
+    takeoff = Takeoff(
+        target_altitude=5.0,
+        position_tolerance=0.25,
+        vertical_speed_tolerance=0.2,
+    )
+
+    assert takeoff.is_settled(
+        REFERENCE, VehicleState(12.0, -3.0, down_m=-3.1, down_m_s=0.1)
+    )
+    assert not takeoff.is_settled(
+        REFERENCE, VehicleState(12.0, -3.0, down_m=-3.1, down_m_s=0.21)
+    )
+    assert not takeoff.is_settled(
+        REFERENCE, VehicleState(math.nan, -3.0, down_m=-3.1, down_m_s=0.1)
+    )
+
+
 @pytest.mark.parametrize(
     "keyword,value",
     [
@@ -66,6 +84,7 @@ def test_takeoff_completion_uses_measured_down_and_tolerance() -> None:
         ("target_altitude", -1.0),
         ("ascent_speed", 0.0),
         ("position_tolerance", 0.0),
+        ("vertical_speed_tolerance", 0.0),
         ("target_altitude", math.inf),
     ],
 )

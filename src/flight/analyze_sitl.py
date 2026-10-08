@@ -27,6 +27,8 @@ def save_plot(
     center: tuple[float, float] | None = None,
     entry: tuple[np.ndarray, np.ndarray] | None = None,
     closure: tuple[np.ndarray, np.ndarray] | None = None,
+    return_path: tuple[np.ndarray, np.ndarray] | None = None,
+    landing: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Path:
     figure, axis = plt.subplots(figsize=(7, 7))
     axis.plot(measured_east, measured_north, label="measured", linewidth=2)
@@ -35,7 +37,18 @@ def save_plot(
         axis.plot(entry[1], entry[0], ":", label="entry", linewidth=2)
     if closure is not None:
         axis.plot(closure[1], closure[0], label="endpoint hold", linewidth=2)
-    axis.scatter(measured_east[0], measured_north[0], marker="o", label="start")
+    if return_path is not None:
+        axis.plot(
+            return_path[1], return_path[0], "-.", label="return to start", linewidth=2
+        )
+    if landing is not None:
+        axis.plot(landing[1], landing[0], label="landing", linewidth=2)
+        axis.scatter(
+            landing[1][-1], landing[0][-1], marker="v", s=70, label="touchdown"
+        )
+    axis.scatter(
+        measured_east[0], measured_north[0], marker="o", label="circle start"
+    )
     if center is not None:
         axis.scatter(center[1], center[0], marker="x", s=80, label="center")
     axis.set_xlabel("East (m)")
@@ -71,6 +84,7 @@ def analyze_takeoff(path: Path, takeoff: list[dict[str, str]]) -> Path:
     )
     yaw_change = abs(angle_difference(yaw[-1], yaw[0]))
     peak_vertical_speed = np.max(np.abs(values(takeoff, "measured_down_m_s")))
+    final_vertical_speed = abs(values(takeoff, "measured_down_m_s")[-1])
 
     print(f"samples={len(takeoff)}")
     print(f"target_altitude_gain_m={target_gain:.3f}")
@@ -78,6 +92,7 @@ def analyze_takeoff(path: Path, takeoff: list[dict[str, str]]) -> Path:
     print(f"final_vertical_error_m={final_vertical_error:.3f}")
     print(f"maximum_lateral_drift_m={lateral_drift:.3f}")
     print(f"peak_vertical_speed_m_s={peak_vertical_speed:.3f}")
+    print(f"final_vertical_speed_m_s={final_vertical_speed:.3f}")
     print(f"absolute_yaw_change_rad={yaw_change:.3f}")
 
     return save_plot(
@@ -114,6 +129,9 @@ def analyze_circle(
     circle: list[dict[str, str]],
     entry: list[dict[str, str]],
     closure: list[dict[str, str]],
+    return_rows: list[dict[str, str]],
+    landing_rows: list[dict[str, str]],
+    setup_rows: list[dict[str, str]],
 ) -> Path:
     trajectory_time = values(circle, "trajectory_time_s")
     north = values(circle, "measured_north_m")
@@ -217,6 +235,33 @@ def analyze_circle(
             )
         entry_plot = entry_north, entry_east
 
+    return_plot: tuple[np.ndarray, np.ndarray] | None = None
+    if return_rows:
+        return_north = values(return_rows, "measured_north_m")
+        return_east = values(return_rows, "measured_east_m")
+        print(
+            "final_return_error_from_center_m="
+            f"{np.hypot(return_north[-1] - center_north, return_east[-1] - center_east):.3f}"
+        )
+        return_plot = return_north, return_east
+
+    landing_plot: tuple[np.ndarray, np.ndarray] | None = None
+    if landing_rows:
+        landing_north = values(landing_rows, "measured_north_m")
+        landing_east = values(landing_rows, "measured_east_m")
+        print(
+            "touchdown_offset_from_center_m="
+            f"{np.hypot(landing_north[-1] - center_north, landing_east[-1] - center_east):.3f}"
+        )
+        landing_plot = landing_north, landing_east
+        if setup_rows:
+            ground_north = float(setup_rows[0]["measured_north_m"])
+            ground_east = float(setup_rows[0]["measured_east_m"])
+            print(
+                "touchdown_offset_from_ground_start_m="
+                f"{np.hypot(landing_north[-1] - ground_north, landing_east[-1] - ground_east):.3f}"
+            )
+
     return save_plot(
         path,
         north,
@@ -227,6 +272,8 @@ def analyze_circle(
         center=(center_north, center_east),
         entry=entry_plot,
         closure=closure_plot,
+        return_path=return_plot,
+        landing=landing_plot,
     )
 
 
@@ -237,7 +284,12 @@ def analyze(path: Path) -> Path:
     if circle:
         entry = [row for row in rows if row["phase"] == "circle_entry"]
         closure = [row for row in rows if row["phase"] == "circle_closure"]
-        return analyze_circle(path, circle, entry, closure)
+        return_rows = [row for row in rows if row["phase"] == "circle_return"]
+        landing = [row for row in rows if row["phase"] == "landing"]
+        setup = [row for row in rows if row["phase"] == "setup_takeoff"]
+        return analyze_circle(
+            path, circle, entry, closure, return_rows, landing, setup
+        )
     takeoff = [row for row in rows if row["phase"] == "takeoff"]
     if takeoff:
         return analyze_takeoff(path, takeoff)

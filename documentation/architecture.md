@@ -12,28 +12,32 @@ commands and exposes measured vehicle state. The SITL runner owns connection,
 arming, action order, logging, error handling, and safe shutdown. In particular:
 
 - `Takeoff` climbs but does not select a later maneuver.
-- `SideCircle`, `CircleCentripetal`, and `Circle` assume the vehicle is airborne
+- `CircleSide`, `CircleCentripetal`, and `Circle` assume the vehicle is airborne
   and never take off or land.
 - Landing is an explicit runner action.
 
 Future voice phrases should resolve through a command registry without changing
 trajectory code: "circle" selects the centered, fixed-yaw `Circle`,
 "centripetal" selects the centered, inward-facing `CircleCentripetal`, and
-"circle side" selects the offset, inward-facing `SideCircle`.
+"circle side" selects the offset, inward-facing `CircleSide`.
 
 The implementation uses these small components:
 
-- `voicedrone/trajectory.py`: PX4-independent trajectory and measured-state
+- `src/flight/trajectory.py`: PX4-independent trajectory and measured-state
   data types.
-- `voicedrone/takeoff.py`: deterministic takeoff generation and completion.
-- `voicedrone/side_circle.py`: circle with the airborne start on its
+- `src/flight/takeoff.py`: deterministic takeoff generation and completion.
+- `src/flight/circle_side.py`: circle with the airborne start on its
   circumference.
-- `voicedrone/circle_centripetal.py`: radial entry followed by a center-facing
+- `src/flight/circle_centripetal.py`: radial entry followed by a center-facing
   circle centered on the airborne start.
-- `voicedrone/circle.py`: the same centered path while holding starting yaw.
-- `voicedrone/px4_offboard_adapter.py`: the only MAVSDK/PX4 import boundary.
-- `run_sitl.py`: wall-clock execution, action ordering, landing, and cleanup.
-- `voicedrone/sitl_log.py` and `analyze_sitl.py`: CSV capture and analysis.
+- `src/flight/circle.py`: the same centered path while holding starting yaw.
+- `src/flight/px4_offboard_adapter.py`: the only MAVSDK/PX4 import boundary.
+- `src/flight/run_sitl.py`: wall-clock execution, action ordering, landing,
+  and cleanup.
+- `src/flight/sitl_log.py` and `src/flight/analyze_sitl.py`: CSV capture and
+  analysis.
+- `src/voice`, `src/cv`, and `src/rl`: importable placeholders for later
+  milestones; they contain no Milestone 1 implementation.
 
 ## Local frame conventions
 
@@ -50,6 +54,12 @@ Flight trajectories use PX4 local NED coordinates:
 - Yaw is in radians about the down axis, increasing clockwise when viewed from
   above: north is `0`, east is `+pi/2`.
 - Yaw rate uses radians per second with the same positive-clockwise convention.
+
+`Takeoff.is_complete` remains a pure geometric tolerance check. The runner's
+handoff is stricter: nominal trajectory time must have elapsed, PX4 must have
+reported valid local position before flight, measured altitude must remain
+within 0.25 m, and absolute vertical speed must remain at or below 0.2 m/s for
+one continuous second. Circle setup takeoff uses the same settling criteria.
 
 Any NED velocity converted to body FRD uses forward, right, down axes and the
 vehicle's measured yaw. The conversion will be unit-tested at headings
@@ -70,13 +80,13 @@ Positive angular velocity is clockwise when viewed from above; negative is
 counter-clockwise. Tangential speed magnitude is
 `abs(angular_velocity) * radius`.
 
-`SideCircle(radius=5.0)`, `CircleCentripetal(radius=5.0)`, and
+`CircleSide(radius=5.0)`, `CircleCentripetal(radius=5.0)`, and
 `Circle(radius=5.0)` default to 1 m/s tangential speed, derive angular
 velocity as `speed / radius`, and default to one revolution with duration
 `2*pi/abs(angular_velocity)`. Explicit angular velocity and duration are
 allowed subject to validation of invalid or conflicting inputs.
 
-`SideCircle` initializes with the measured airborne position on its
+`CircleSide` initializes with the measured airborne position on its
 circumference. For a selected phase, its centre is:
 
 ```text
@@ -96,7 +106,7 @@ yaw, so its nose faces the centre. Entry time and settling are separate from
 circular-motion duration. The entry endpoint and first circle setpoint have
 identical position and yaw.
 
-All circular segments hold starting altitude. `SideCircle` and
+All circular segments hold starting altitude. `CircleSide` and
 `CircleCentripetal` command inward yaw:
 
 ```text
@@ -111,6 +121,14 @@ position without a setpoint jump. The physical vehicle follows with finite
 controller tracking error. PX4 receives position/yaw setpoints; logged analytic
 velocity and yaw rate are not sent as feed-forward.
 
+After a centered circle closes and settles on its circumference, the runner
+uses a deterministic radial return that retraces the entry to the original
+airborne center. It waits until horizontal position error is at most 0.15 m and
+horizontal speed is at most 0.2 m/s for 0.5 s, then invokes the separate PX4
+landing action. Return time is separate from circle duration. `CircleSide`
+does not have this return because its airborne start is already on the
+circumference.
+
 The verified side circle uses radius 10 m and angular velocity 0.1 rad/s. The
 verified centered circles use radius 5 m and angular velocity 0.2 rad/s. All
 use 1 m/s tangential speed and one commanded revolution. After the revolution,
@@ -122,9 +140,9 @@ completion; its commanded path was a full circle.
 
 ## Command interface direction
 
-`run_sitl.py` is the typed, validated behavior interface. Its command registry
-currently dispatches `takeoff`, `circle-side`, `circle_centripetal`, and
-`circle`. A future text or voice parser should produce structured command
+`flight.run_sitl` is the typed, validated behavior interface. Its command
+registry currently dispatches `takeoff`, `circle_side`, `circle_centripetal`,
+and `circle`. A future text or voice parser should produce structured command
 names and numeric arguments for that registry instead of invoking MAVSDK or
 shell commands directly.
 

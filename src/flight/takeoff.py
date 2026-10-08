@@ -13,8 +13,14 @@ class Takeoff:
         target_altitude: float = 5.0,
         ascent_speed: float = 1.0,
         position_tolerance: float = 0.25,
+        vertical_speed_tolerance: float = 0.2,
     ) -> None:
-        values = (target_altitude, ascent_speed, position_tolerance)
+        values = (
+            target_altitude,
+            ascent_speed,
+            position_tolerance,
+            vertical_speed_tolerance,
+        )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("takeoff parameters must be finite")
         if target_altitude <= 0.0:
@@ -23,10 +29,13 @@ class Takeoff:
             raise ValueError("ascent_speed must be greater than zero")
         if position_tolerance <= 0.0:
             raise ValueError("position_tolerance must be greater than zero")
+        if vertical_speed_tolerance <= 0.0:
+            raise ValueError("vertical_speed_tolerance must be greater than zero")
 
         self.target_altitude = target_altitude
         self.ascent_speed = ascent_speed
         self.position_tolerance = position_tolerance
+        self.vertical_speed_tolerance = vertical_speed_tolerance
 
     @property
     def duration(self) -> float:
@@ -64,4 +73,15 @@ class Takeoff:
         return (
             abs(measured.down_m - self.target_down(reference))
             <= self.position_tolerance
+        )
+
+    def is_settled(self, reference: VehicleState, measured: VehicleState) -> bool:
+        """Return whether position and vertical speed meet handoff limits."""
+
+        local_values = (measured.north_m, measured.east_m, measured.down_m)
+        return (
+            all(math.isfinite(value) for value in local_values)
+            and self.is_complete(reference, measured)
+            and math.isfinite(measured.down_m_s)
+            and abs(measured.down_m_s) <= self.vertical_speed_tolerance
         )

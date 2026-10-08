@@ -3,11 +3,11 @@
 from dataclasses import replace
 
 from .circle_centripetal import CircleCentripetal
-from .side_circle import SideCircle
+from .circle_side import CircleSide
 from .trajectory import TrajectoryPoint, VehicleState
 
 
-class _FixedYawCircle(SideCircle):
+class _FixedYawCircle(CircleSide):
     def point_at(
         self, trajectory_time: float, reference: VehicleState
     ) -> TrajectoryPoint:
@@ -18,7 +18,7 @@ class _FixedYawCircle(SideCircle):
 class Circle(CircleCentripetal):
     """Circle around the measured airborne start while holding its yaw."""
 
-    def side_circle(self, reference: VehicleState) -> SideCircle:
+    def circle_segment(self, reference: VehicleState) -> CircleSide:
         return _FixedYawCircle(
             self.radius,
             speed=self.speed,

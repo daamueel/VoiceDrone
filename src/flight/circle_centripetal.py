@@ -2,7 +2,7 @@
 
 import math
 
-from .side_circle import SideCircle
+from .circle_side import CircleSide
 from .trajectory import TrajectoryPoint, VehicleState
 
 
@@ -20,7 +20,7 @@ class CircleCentripetal:
     ) -> None:
         if not math.isfinite(entry_speed) or entry_speed <= 0.0:
             raise ValueError("entry_speed must be finite and greater than zero")
-        template = SideCircle(
+        template = CircleSide(
             radius,
             speed=speed,
             angular_velocity=angular_velocity,
@@ -35,6 +35,12 @@ class CircleCentripetal:
     @property
     def entry_duration(self) -> float:
         return self.radius / self.entry_speed
+
+    @property
+    def return_duration(self) -> float:
+        """Time needed to retrace the radial entry to the circle center."""
+
+        return self.entry_duration
 
     def phase(self, reference: VehicleState) -> float:
         """Put the circumference entry behind the initial vehicle heading."""
@@ -76,10 +82,30 @@ class CircleCentripetal:
             yaw_rad=endpoint.yaw_rad,
         )
 
-    def side_circle(self, reference: VehicleState) -> SideCircle:
+    def return_point_at(
+        self, return_time: float, reference: VehicleState
+    ) -> TrajectoryPoint:
+        """Move from the circumference back to the original airborne start."""
+
+        if not math.isfinite(return_time):
+            raise ValueError("return_time must be finite")
+        elapsed = min(max(0.0, return_time), self.return_duration)
+        distance = self.radius - self.entry_speed * elapsed
+        phase = self.phase(reference)
+        moving = 0.0 <= return_time < self.return_duration
+        return TrajectoryPoint(
+            north_m=reference.north_m + distance * math.cos(phase),
+            east_m=reference.east_m + distance * math.sin(phase),
+            down_m=reference.down_m,
+            north_m_s=-self.entry_speed * math.cos(phase) if moving else 0.0,
+            east_m_s=-self.entry_speed * math.sin(phase) if moving else 0.0,
+            yaw_rad=reference.yaw_rad,
+        )
+
+    def circle_segment(self, reference: VehicleState) -> CircleSide:
         """Return the circular segment whose center is the original position."""
 
-        return SideCircle(
+        return CircleSide(
             self.radius,
             speed=self.speed,
             angular_velocity=self.angular_velocity,
@@ -91,3 +117,8 @@ class CircleCentripetal:
         if not math.isfinite(entry_time):
             raise ValueError("entry_time must be finite")
         return entry_time >= self.entry_duration
+
+    def is_return_complete(self, return_time: float) -> bool:
+        if not math.isfinite(return_time):
+            raise ValueError("return_time must be finite")
+        return return_time >= self.return_duration

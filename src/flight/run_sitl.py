@@ -5,17 +5,24 @@ import asyncio
 import math
 import time
 
-from voicedrone.circle import Circle
-from voicedrone.circle_centripetal import CircleCentripetal
-from voicedrone.px4_offboard_adapter import PX4OffboardAdapter
-from voicedrone.side_circle import SideCircle
-from voicedrone.sitl_log import SitlLogger
-from voicedrone.takeoff import Takeoff
-from voicedrone.trajectory import TrajectoryPoint, VehicleState
+from .circle import Circle
+from .circle_centripetal import CircleCentripetal
+from .circle_side import CircleSide
+from .px4_offboard_adapter import PX4OffboardAdapter
+from .sitl_log import SitlLogger
+from .takeoff import Takeoff
+from .trajectory import TrajectoryPoint, VehicleState
 
 
 def angle_difference(first: float, second: float) -> float:
     return math.atan2(math.sin(first - second), math.cos(first - second))
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise argparse.ArgumentTypeError("value must be finite and greater than zero")
+    return parsed
 
 
 async def land_and_log(
@@ -52,6 +59,7 @@ async def run_takeoff(args: argparse.Namespace) -> None:
         target_altitude=args.target_altitude,
         ascent_speed=args.ascent_speed,
         position_tolerance=args.position_tolerance,
+        vertical_speed_tolerance=args.vertical_speed_tolerance,
     )
     adapter = PX4OffboardAdapter(args.connection)
     armed = False
@@ -71,23 +79,32 @@ async def run_takeoff(args: argparse.Namespace) -> None:
 
             started = time.monotonic()
             timeout_s = behavior.duration + args.completion_timeout
+            settled_since: float | None = None
             while True:
                 trajectory_time = time.monotonic() - started
                 command = behavior.point_at(trajectory_time, reference)
                 await adapter.send(command)
                 measured = adapter.state()
                 log.write(trajectory_time, "takeoff", command, measured)
-                if (
+                settled = (
                     trajectory_time >= behavior.duration
-                    and behavior.is_complete(reference, measured)
-                ):
-                    completed = True
-                    print(
-                        "Takeoff complete: "
-                        f"target_down={behavior.target_down(reference):.3f} m, "
-                        f"measured_down={measured.down_m:.3f} m"
+                    and behavior.is_settled(reference, measured)
+                )
+                if settled:
+                    settled_since = (
+                        time.monotonic() if settled_since is None else settled_since
                     )
-                    break
+                    if time.monotonic() - settled_since >= args.settling_time:
+                        completed = True
+                        print(
+                            "Takeoff settled: "
+                            f"target_down={behavior.target_down(reference):.3f} m, "
+                            f"measured_down={measured.down_m:.3f} m, "
+                            f"vertical_speed={measured.down_m_s:.3f} m/s"
+                        )
+                        break
+                else:
+                    settled_since = None
                 if trajectory_time > timeout_s:
                     raise TimeoutError("takeoff did not reach its altitude tolerance")
                 await asyncio.sleep(0.05)
@@ -117,14 +134,19 @@ async def wait_for_setup_takeoff(
         now = time.monotonic()
         measured = adapter.state()
         log.write(now - setup_started, "setup_takeoff", command, measured)
-        altitude_gain = ground_reference.down_m - measured.down_m
+        target_down = ground_reference.down_m - args.setup_altitude
+        position_is_valid = all(
+            math.isfinite(value)
+            for value in (measured.north_m, measured.east_m, measured.down_m)
+        )
         settled = (
-            altitude_gain >= args.setup_altitude - 0.5
-            and abs(measured.down_m_s) <= 0.3
+            position_is_valid
+            and abs(measured.down_m - target_down) <= args.setup_position_tolerance
+            and abs(measured.down_m_s) <= args.setup_vertical_speed_tolerance
         )
         if settled:
             settled_since = now if settled_since is None else settled_since
-            if now - settled_since >= 1.0:
+            if now - settled_since >= args.setup_settling_time:
                 return
         else:
             settled_since = None
@@ -133,7 +155,7 @@ async def wait_for_setup_takeoff(
         await asyncio.sleep(0.1)
 
 
-async def align_side_circle_yaw(
+async def align_circle_side_yaw(
     adapter: PX4OffboardAdapter,
     log: SitlLogger,
     command: TrajectoryPoint,
@@ -166,7 +188,7 @@ async def align_side_circle_yaw(
 async def execute_circle(
     adapter: PX4OffboardAdapter,
     log: SitlLogger,
-    behavior: SideCircle,
+    behavior: CircleSide,
     reference: VehicleState,
     label: str,
     closure_timeout: float,
@@ -223,8 +245,58 @@ async def execute_circle(
         await asyncio.sleep(0.05)
 
 
-async def run_side_circle(args: argparse.Namespace) -> None:
-    behavior = SideCircle(
+async def return_centered_circle_to_start(
+    adapter: PX4OffboardAdapter,
+    log: SitlLogger,
+    behavior: CircleCentripetal,
+    center_reference: VehicleState,
+    timeout_s: float,
+) -> TrajectoryPoint:
+    """Retrace radial entry and settle over the airborne starting point."""
+
+    print(
+        "Runner return to centered-circle start: "
+        f"distance={behavior.radius:.3f} m, "
+        f"speed={behavior.entry_speed:.3f} m/s"
+    )
+    started = time.monotonic()
+    settled_since: float | None = None
+    while True:
+        now = time.monotonic()
+        return_time = now - started
+        command = behavior.return_point_at(return_time, center_reference)
+        await adapter.send(command)
+        measured = adapter.state()
+        log.write(return_time, "circle_return", command, measured)
+        position_error = math.hypot(
+            measured.north_m - center_reference.north_m,
+            measured.east_m - center_reference.east_m,
+        )
+        horizontal_speed = math.hypot(
+            measured.north_m_s, measured.east_m_s
+        )
+        settled = (
+            behavior.is_return_complete(return_time)
+            and position_error <= 0.15
+            and horizontal_speed <= 0.2
+        )
+        if settled:
+            settled_since = now if settled_since is None else settled_since
+            if now - settled_since >= 0.5:
+                print(
+                    "Centered-circle return complete: "
+                    f"position error={position_error:.3f} m"
+                )
+                return command
+        else:
+            settled_since = None
+        if return_time > behavior.return_duration + timeout_s:
+            raise TimeoutError("centered circle did not settle at its starting point")
+        await asyncio.sleep(0.05)
+
+
+async def run_circle_side(args: argparse.Namespace) -> None:
+    behavior = CircleSide(
         radius=args.radius,
         speed=args.speed,
         angular_velocity=args.angular_velocity,
@@ -257,7 +329,7 @@ async def run_side_circle(args: argparse.Namespace) -> None:
             command = behavior.point_at(0.0, reference)
             await adapter.send(command)
             await adapter.start_offboard()
-            await align_side_circle_yaw(adapter, log, command)
+            await align_circle_side_yaw(adapter, log, command)
             command = await execute_circle(
                 adapter, log, behavior, reference, "Side circle", args.closure_timeout
             )
@@ -352,7 +424,7 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
             circumference_reference = behavior.circumference_reference(
                 center_reference
             )
-            circle = behavior.side_circle(center_reference)
+            circle = behavior.circle_segment(center_reference)
             command = await execute_circle(
                 adapter,
                 log,
@@ -360,6 +432,13 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
                 circumference_reference,
                 args.behavior,
                 args.closure_timeout,
+            )
+            command = await return_centered_circle_to_start(
+                adapter,
+                log,
+                behavior,
+                center_reference,
+                args.return_timeout,
             )
             completed = True
         finally:
@@ -380,12 +459,16 @@ def parse_args() -> argparse.Namespace:
     takeoff.add_argument("--target-altitude", type=float, default=5.0)
     takeoff.add_argument("--ascent-speed", type=float, default=1.0)
     takeoff.add_argument("--position-tolerance", type=float, default=0.25)
+    takeoff.add_argument(
+        "--vertical-speed-tolerance", type=positive_float, default=0.2
+    )
+    takeoff.add_argument("--settling-time", type=positive_float, default=1.0)
     takeoff.add_argument("--completion-timeout", type=float, default=15.0)
     takeoff.add_argument(
         "--connection", default="udpin://0.0.0.0:14540"
     )
     circle_side = subparsers.add_parser(
-        "circle-side", help="start on a circle circumference, then land"
+        "circle_side", help="start on a circle circumference, then land"
     )
     circle_side.add_argument("--radius", type=float, default=10.0)
     circle_side.add_argument("--speed", type=float, default=1.0)
@@ -394,6 +477,15 @@ def parse_args() -> argparse.Namespace:
     circle_side.add_argument("--phase", type=float, default=0.0)
     circle_side.add_argument("--setup-altitude", type=float, default=5.0)
     circle_side.add_argument("--setup-timeout", type=float, default=30.0)
+    circle_side.add_argument(
+        "--setup-position-tolerance", type=positive_float, default=0.25
+    )
+    circle_side.add_argument(
+        "--setup-vertical-speed-tolerance", type=positive_float, default=0.2
+    )
+    circle_side.add_argument(
+        "--setup-settling-time", type=positive_float, default=1.0
+    )
     circle_side.add_argument("--closure-timeout", type=float, default=15.0)
     circle_side.add_argument(
         "--connection", default="udpin://0.0.0.0:14540"
@@ -409,8 +501,20 @@ def parse_args() -> argparse.Namespace:
         circle_parser.add_argument("--duration", type=float)
         circle_parser.add_argument("--entry-speed", type=float, default=1.0)
         circle_parser.add_argument("--entry-timeout", type=float, default=15.0)
+        circle_parser.add_argument(
+            "--return-timeout", type=positive_float, default=15.0
+        )
         circle_parser.add_argument("--setup-altitude", type=float, default=5.0)
         circle_parser.add_argument("--setup-timeout", type=float, default=30.0)
+        circle_parser.add_argument(
+            "--setup-position-tolerance", type=positive_float, default=0.25
+        )
+        circle_parser.add_argument(
+            "--setup-vertical-speed-tolerance", type=positive_float, default=0.2
+        )
+        circle_parser.add_argument(
+            "--setup-settling-time", type=positive_float, default=1.0
+        )
         circle_parser.add_argument("--closure-timeout", type=float, default=15.0)
         circle_parser.add_argument(
             "--connection", default="udpin://0.0.0.0:14540"
@@ -422,7 +526,7 @@ def main() -> None:
     args = parse_args()
     command_runners = {
         "takeoff": run_takeoff,
-        "circle-side": run_side_circle,
+        "circle_side": run_circle_side,
         "circle_centripetal": run_centered_circle,
         "circle": run_centered_circle,
     }
