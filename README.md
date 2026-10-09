@@ -17,7 +17,7 @@ ROS 2, and real hardware are later work.
 - [x] Independent takeoff behavior implemented and flight-tested
 - [x] Independent side, centered center-facing (`circle_centripetal`), and
       centered fixed-yaw (`circle`) behaviors implemented and flight-tested
-- [ ] Takeoff, circle, and runner-controlled landing flight-tested together
+- [x] Takeoff, circle, and runner-controlled landing flight-tested together
 
 See [documentation/setup.md](documentation/setup.md) for the verified toolchain
 and [documentation/architecture.md](documentation/architecture.md) for the

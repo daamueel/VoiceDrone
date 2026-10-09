@@ -54,6 +54,48 @@ async def land_and_log(
     print("Landing complete: vehicle disarmed")
 
 
+async def execute_takeoff(
+    adapter: PX4OffboardAdapter,
+    log: SitlLogger,
+    behavior: Takeoff,
+    reference: VehicleState,
+    settling_time: float,
+    completion_timeout: float,
+) -> TrajectoryPoint:
+    """Execute and settle a takeoff without selecting the next action."""
+
+    started = time.monotonic()
+    timeout_s = behavior.duration + completion_timeout
+    settled_since: float | None = None
+    while True:
+        trajectory_time = time.monotonic() - started
+        command = behavior.point_at(trajectory_time, reference)
+        await adapter.send(command)
+        measured = adapter.state()
+        log.write(trajectory_time, "takeoff", command, measured)
+        settled = (
+            trajectory_time >= behavior.duration
+            and behavior.is_settled(reference, measured)
+        )
+        if settled:
+            settled_since = (
+                time.monotonic() if settled_since is None else settled_since
+            )
+            if time.monotonic() - settled_since >= settling_time:
+                print(
+                    "Takeoff settled: "
+                    f"target_down={behavior.target_down(reference):.3f} m, "
+                    f"measured_down={measured.down_m:.3f} m, "
+                    f"vertical_speed={measured.down_m_s:.3f} m/s"
+                )
+                return command
+        else:
+            settled_since = None
+        if trajectory_time > timeout_s:
+            raise TimeoutError("takeoff did not reach its settling criteria")
+        await asyncio.sleep(0.05)
+
+
 async def run_takeoff(args: argparse.Namespace) -> None:
     behavior = Takeoff(
         target_altitude=args.target_altitude,
@@ -76,38 +118,15 @@ async def run_takeoff(args: argparse.Namespace) -> None:
             await adapter.arm()
             armed = True
             await adapter.start_offboard()
-
-            started = time.monotonic()
-            timeout_s = behavior.duration + args.completion_timeout
-            settled_since: float | None = None
-            while True:
-                trajectory_time = time.monotonic() - started
-                command = behavior.point_at(trajectory_time, reference)
-                await adapter.send(command)
-                measured = adapter.state()
-                log.write(trajectory_time, "takeoff", command, measured)
-                settled = (
-                    trajectory_time >= behavior.duration
-                    and behavior.is_settled(reference, measured)
-                )
-                if settled:
-                    settled_since = (
-                        time.monotonic() if settled_since is None else settled_since
-                    )
-                    if time.monotonic() - settled_since >= args.settling_time:
-                        completed = True
-                        print(
-                            "Takeoff settled: "
-                            f"target_down={behavior.target_down(reference):.3f} m, "
-                            f"measured_down={measured.down_m:.3f} m, "
-                            f"vertical_speed={measured.down_m_s:.3f} m/s"
-                        )
-                        break
-                else:
-                    settled_since = None
-                if trajectory_time > timeout_s:
-                    raise TimeoutError("takeoff did not reach its altitude tolerance")
-                await asyncio.sleep(0.05)
+            command = await execute_takeoff(
+                adapter,
+                log,
+                behavior,
+                reference,
+                args.settling_time,
+                args.completion_timeout,
+            )
+            completed = True
         finally:
             try:
                 if armed:
@@ -345,8 +364,80 @@ async def run_circle_side(args: argparse.Namespace) -> None:
         raise RuntimeError("side circle behavior did not complete")
 
 
+async def execute_centered_circle_behavior(
+    adapter: PX4OffboardAdapter,
+    log: SitlLogger,
+    behavior: CircleCentripetal,
+    center_reference: VehicleState,
+    label: str,
+    entry_timeout: float,
+    closure_timeout: float,
+    return_timeout: float,
+) -> TrajectoryPoint:
+    """Execute entry, centered circle, and return with offboard already active."""
+
+    print(
+        f"{label} entry: "
+        f"distance={behavior.radius:.3f} m, "
+        f"speed={behavior.entry_speed:.3f} m/s, "
+        f"duration={behavior.entry_duration:.3f} s"
+    )
+
+    entry_started = time.monotonic()
+    settled_since: float | None = None
+    endpoint = behavior.entry_point_at(behavior.entry_duration, center_reference)
+    while True:
+        now = time.monotonic()
+        entry_time = now - entry_started
+        command = behavior.entry_point_at(entry_time, center_reference)
+        await adapter.send(command)
+        measured = adapter.state()
+        log.write(entry_time, "circle_entry", command, measured)
+        position_error = math.hypot(
+            measured.north_m - endpoint.north_m,
+            measured.east_m - endpoint.east_m,
+        )
+        horizontal_speed = math.hypot(
+            measured.north_m_s, measured.east_m_s
+        )
+        settled = (
+            behavior.is_entry_complete(entry_time)
+            and position_error <= 0.25
+            and horizontal_speed <= 0.3
+        )
+        if settled:
+            settled_since = now if settled_since is None else settled_since
+            if now - settled_since >= 1.0:
+                break
+        else:
+            settled_since = None
+        if entry_time > behavior.entry_duration + entry_timeout:
+            raise TimeoutError("centered circle entry did not settle")
+        await asyncio.sleep(0.05)
+
+    circumference_reference = behavior.circumference_reference(center_reference)
+    circle = behavior.circle_segment(center_reference)
+    await execute_circle(
+        adapter,
+        log,
+        circle,
+        circumference_reference,
+        label,
+        closure_timeout,
+    )
+    return await return_centered_circle_to_start(
+        adapter,
+        log,
+        behavior,
+        center_reference,
+        return_timeout,
+    )
+
+
 async def run_centered_circle(args: argparse.Namespace) -> None:
-    behavior_class = CircleCentripetal if args.behavior == "circle_centripetal" else Circle
+    behavior_class = (
+        CircleCentripetal if args.behavior == "circle_centripetal" else Circle
+    )
     behavior = behavior_class(
         radius=args.radius,
         speed=args.speed,
@@ -380,64 +471,14 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
             command = behavior.entry_point_at(0.0, center_reference)
             await adapter.send(command)
             await adapter.start_offboard()
-            print(
-                f"{args.behavior} entry: "
-                f"distance={behavior.radius:.3f} m, "
-                f"speed={behavior.entry_speed:.3f} m/s, "
-                f"duration={behavior.entry_duration:.3f} s"
-            )
-
-            entry_started = time.monotonic()
-            settled_since: float | None = None
-            endpoint = behavior.entry_point_at(
-                behavior.entry_duration, center_reference
-            )
-            while True:
-                now = time.monotonic()
-                entry_time = now - entry_started
-                command = behavior.entry_point_at(entry_time, center_reference)
-                await adapter.send(command)
-                measured = adapter.state()
-                log.write(entry_time, "circle_entry", command, measured)
-                position_error = math.hypot(
-                    measured.north_m - endpoint.north_m,
-                    measured.east_m - endpoint.east_m,
-                )
-                horizontal_speed = math.hypot(
-                    measured.north_m_s, measured.east_m_s
-                )
-                settled = (
-                    behavior.is_entry_complete(entry_time)
-                    and position_error <= 0.25
-                    and horizontal_speed <= 0.3
-                )
-                if settled:
-                    settled_since = now if settled_since is None else settled_since
-                    if now - settled_since >= 1.0:
-                        break
-                else:
-                    settled_since = None
-                if entry_time > behavior.entry_duration + args.entry_timeout:
-                    raise TimeoutError("centered circle entry did not settle")
-                await asyncio.sleep(0.05)
-
-            circumference_reference = behavior.circumference_reference(
-                center_reference
-            )
-            circle = behavior.circle_segment(center_reference)
-            command = await execute_circle(
-                adapter,
-                log,
-                circle,
-                circumference_reference,
-                args.behavior,
-                args.closure_timeout,
-            )
-            command = await return_centered_circle_to_start(
+            command = await execute_centered_circle_behavior(
                 adapter,
                 log,
                 behavior,
                 center_reference,
+                args.behavior,
+                args.entry_timeout,
+                args.closure_timeout,
                 args.return_timeout,
             )
             completed = True
@@ -452,7 +493,78 @@ async def run_centered_circle(args: argparse.Namespace) -> None:
         raise RuntimeError(f"{args.behavior} behavior did not complete")
 
 
-def parse_args() -> argparse.Namespace:
+async def run_takeoff_circle_land(args: argparse.Namespace) -> None:
+    """Run deterministic takeoff, centered circle, return, then runner landing."""
+
+    takeoff = Takeoff(
+        target_altitude=args.target_altitude,
+        ascent_speed=args.ascent_speed,
+        position_tolerance=args.position_tolerance,
+        vertical_speed_tolerance=args.vertical_speed_tolerance,
+    )
+    circle_class = (
+        CircleCentripetal
+        if args.circle_behavior == "circle_centripetal"
+        else Circle
+    )
+    circle_behavior = circle_class(
+        radius=args.radius,
+        speed=args.speed,
+        angular_velocity=args.angular_velocity,
+        duration=args.duration,
+        entry_speed=args.entry_speed,
+    )
+    adapter = PX4OffboardAdapter(args.connection)
+    armed = False
+    completed = False
+
+    with SitlLogger("takeoff_circle_land") as log:
+        print(f"Log: {log.path}")
+        try:
+            await adapter.connect()
+            await adapter.wait_until_ready()
+            ground_reference = adapter.state()
+            command = takeoff.point_at(0.0, ground_reference)
+            await adapter.send(command)
+            await adapter.arm()
+            armed = True
+            await adapter.start_offboard()
+
+            command = await execute_takeoff(
+                adapter,
+                log,
+                takeoff,
+                ground_reference,
+                args.settling_time,
+                args.completion_timeout,
+            )
+
+            center_reference = adapter.state()
+            command = circle_behavior.entry_point_at(0.0, center_reference)
+            await adapter.send(command)
+            command = await execute_centered_circle_behavior(
+                adapter,
+                log,
+                circle_behavior,
+                center_reference,
+                args.circle_behavior,
+                args.entry_timeout,
+                args.closure_timeout,
+                args.return_timeout,
+            )
+            completed = True
+        finally:
+            try:
+                if armed:
+                    await land_and_log(adapter, log, command)
+            finally:
+                await adapter.close()
+
+    if not completed:
+        raise RuntimeError("takeoff-circle-land sequence did not complete")
+
+
+def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="behavior", required=True)
     takeoff = subparsers.add_parser("takeoff", help="run takeoff, then land")
@@ -519,7 +631,37 @@ def parse_args() -> argparse.Namespace:
         circle_parser.add_argument(
             "--connection", default="udpin://0.0.0.0:14540"
         )
-    return parser.parse_args()
+    sequence = subparsers.add_parser(
+        "takeoff_circle_land",
+        help="run deterministic takeoff, centered circle, return, and landing",
+    )
+    sequence.add_argument(
+        "--circle-behavior",
+        choices=("circle", "circle_centripetal"),
+        default="circle",
+    )
+    sequence.add_argument("--target-altitude", type=float, default=5.0)
+    sequence.add_argument("--ascent-speed", type=float, default=1.0)
+    sequence.add_argument("--position-tolerance", type=float, default=0.25)
+    sequence.add_argument(
+        "--vertical-speed-tolerance", type=positive_float, default=0.2
+    )
+    sequence.add_argument("--settling-time", type=positive_float, default=1.0)
+    sequence.add_argument("--completion-timeout", type=float, default=15.0)
+    sequence.add_argument("--radius", type=float, default=10.0)
+    sequence.add_argument("--speed", type=float, default=1.0)
+    sequence.add_argument("--angular-velocity", type=float)
+    sequence.add_argument("--duration", type=float)
+    sequence.add_argument("--entry-speed", type=float, default=1.0)
+    sequence.add_argument("--entry-timeout", type=float, default=15.0)
+    sequence.add_argument(
+        "--return-timeout", type=positive_float, default=15.0
+    )
+    sequence.add_argument("--closure-timeout", type=float, default=15.0)
+    sequence.add_argument(
+        "--connection", default="udpin://0.0.0.0:14540"
+    )
+    return parser.parse_args(arguments)
 
 
 def main() -> None:
@@ -529,6 +671,7 @@ def main() -> None:
         "circle_side": run_circle_side,
         "circle_centripetal": run_centered_circle,
         "circle": run_centered_circle,
+        "takeoff_circle_land": run_takeoff_circle_land,
     }
     asyncio.run(command_runners[args.behavior](args))
 

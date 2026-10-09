@@ -228,8 +228,7 @@ Git. Preserve a required artifact outside `logs/` before repository cleanup.
 
 After the runner reports `Landing complete: vehicle disarmed`, shut PX4 and
 Gazebo down using the controlled procedure in **Verified PX4/Gazebo launch**.
-The independent circle procedure is documented below; the combined sequence
-remains unverified until Step 10.
+The independent circle procedure is documented below.
 
 ## Verified independent circle runs
 
@@ -354,5 +353,80 @@ conversion is used by this position-setpoint implementation.
 
 The generated artifacts remain ignored by Git. After the runner reports that
 landing completed and the vehicle disarmed, use the controlled PX4/Gazebo
-shutdown procedure above. The combined `Takeoff` behavior to a circle behavior
-remains unverified until Step 10; that step must select an explicit variant.
+shutdown procedure above.
+
+## Verified combined Takeoff to Circle to Land run
+
+Keep PX4/Gazebo running and apply the Windows-side WSL gateway routing described
+above. From a Windows PowerShell at the repository root, the verified Milestone
+1 sequence is:
+
+```powershell
+conda activate voicedrone
+python -m pytest -q
+python -m flight.run_sitl takeoff_circle_land `
+  --target-altitude 5.0 `
+  --circle-behavior circle `
+  --radius 10.0 `
+  --speed 1.0 `
+  --angular-velocity 0.1
+```
+
+`circle` is the centered, fixed-yaw variant. Use
+`--circle-behavior circle_centripetal` for the centered, inward-facing variant.
+The runner arms once and starts one offboard session. It executes the
+independent `Takeoff`, waits for the same settled-altitude criteria used by the
+standalone takeoff runner, captures the current measured airborne state, and
+uses that state as the circle center. The first radial-entry setpoint is exactly
+that measured position, so the takeoff-to-circle handoff has no commanded
+position jump.
+
+The 10 m radial entry is separate from the 62.83 s circular-motion duration.
+After one revolution, the runner holds the circumference endpoint until it
+settles, returns radially to the original airborne center, and waits for that
+return to settle. Only then does it invoke the separate MAVSDK landing action
+and wait for disarm. Neither `Takeoff` nor `Circle` contains landing logic.
+
+The verified artifacts are:
+
+```text
+logs\sitl_20261009T001045Z_takeoff_circle_land.csv
+logs\sitl_20261009T001045Z_takeoff_circle_land_ne.png
+```
+
+Analyze or reproduce the matching plot with:
+
+```powershell
+python -m flight.analyze_sitl logs\sitl_20261009T001045Z_takeoff_circle_land.csv
+```
+
+The observed results were:
+
+```text
+unit tests:                          80 passed
+takeoff measured altitude gain:      4.855 m
+takeoff final vertical error:         0.144 m
+takeoff final vertical speed:         0.078 m/s
+takeoff maximum lateral drift:        0.035 m
+circle commanded/measured radius:    10.000 / 9.989 m
+circle radial RMSE:                   0.021 m
+circle commanded/measured speed:      0.999 / 0.972 m/s
+circle commanded/measured omega:      0.1000 / 0.0999 rad/s
+circle circular-motion duration:     62.859 s
+circle mean/maximum altitude error:   0.005 / 0.016 m
+circle maximum yaw change:            0.011 rad
+circle maximum yaw-hold error:        0.0105 rad
+circle final endpoint error:          0.093 m
+return-to-center error:               0.090 m
+touchdown offset from airborne center: 0.034 m
+touchdown offset from ground start:   0.053 m
+final armed state:                    false
+```
+
+The CSV includes commanded and measured NED position and velocity, yaw and yaw
+rate, UTC timestamp, trajectory time, execution phase, flight mode, and armed
+state. The top-down plot distinguishes radial entry, the commanded and measured
+circle, endpoint hold, radial return, landing, and touchdown. Generated
+artifacts remain ignored by Git. After inspection, shut down PX4 and Gazebo
+using the controlled procedure above and confirm that no simulator process
+remains.

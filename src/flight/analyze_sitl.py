@@ -132,6 +132,7 @@ def analyze_circle(
     return_rows: list[dict[str, str]],
     landing_rows: list[dict[str, str]],
     setup_rows: list[dict[str, str]],
+    takeoff_rows: list[dict[str, str]],
 ) -> Path:
     trajectory_time = values(circle, "trajectory_time_s")
     north = values(circle, "measured_north_m")
@@ -163,6 +164,29 @@ def analyze_circle(
     heading_error = np.arctan2(
         np.sin(yaw - expected_yaw), np.cos(yaw - expected_yaw)
     )
+
+    if takeoff_rows:
+        takeoff_down = values(takeoff_rows, "measured_down_m")
+        takeoff_command_down = values(takeoff_rows, "command_down_m")
+        takeoff_vertical_speed = values(takeoff_rows, "measured_down_m_s")
+        takeoff_north = values(takeoff_rows, "measured_north_m")
+        takeoff_east = values(takeoff_rows, "measured_east_m")
+        takeoff_drift = np.hypot(
+            takeoff_north - takeoff_north[0], takeoff_east - takeoff_east[0]
+        )
+        print(
+            "takeoff_measured_altitude_gain_m="
+            f"{takeoff_down[0] - takeoff_down[-1]:.3f}"
+        )
+        print(
+            "takeoff_final_vertical_error_m="
+            f"{abs(takeoff_down[-1] - takeoff_command_down[-1]):.3f}"
+        )
+        print(
+            "takeoff_final_vertical_speed_m_s="
+            f"{abs(takeoff_vertical_speed[-1]):.3f}"
+        )
+        print(f"takeoff_maximum_lateral_drift_m={np.max(takeoff_drift):.3f}")
 
     print(f"samples={len(circle)}")
     print(f"circle_duration_s={trajectory_time[-1] - trajectory_time[0]:.3f}")
@@ -254,9 +278,10 @@ def analyze_circle(
             f"{np.hypot(landing_north[-1] - center_north, landing_east[-1] - center_east):.3f}"
         )
         landing_plot = landing_north, landing_east
-        if setup_rows:
-            ground_north = float(setup_rows[0]["measured_north_m"])
-            ground_east = float(setup_rows[0]["measured_east_m"])
+        ground_rows = setup_rows or takeoff_rows
+        if ground_rows:
+            ground_north = float(ground_rows[0]["measured_north_m"])
+            ground_east = float(ground_rows[0]["measured_east_m"])
             print(
                 "touchdown_offset_from_ground_start_m="
                 f"{np.hypot(landing_north[-1] - ground_north, landing_east[-1] - ground_east):.3f}"
@@ -287,8 +312,9 @@ def analyze(path: Path) -> Path:
         return_rows = [row for row in rows if row["phase"] == "circle_return"]
         landing = [row for row in rows if row["phase"] == "landing"]
         setup = [row for row in rows if row["phase"] == "setup_takeoff"]
+        takeoff = [row for row in rows if row["phase"] == "takeoff"]
         return analyze_circle(
-            path, circle, entry, closure, return_rows, landing, setup
+            path, circle, entry, closure, return_rows, landing, setup, takeoff
         )
     takeoff = [row for row in rows if row["phase"] == "takeoff"]
     if takeoff:

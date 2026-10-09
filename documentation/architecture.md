@@ -142,9 +142,17 @@ completion; its commanded path was a full circle.
 
 `flight.run_sitl` is the typed, validated behavior interface. Its command
 registry currently dispatches `takeoff`, `circle_side`, `circle_centripetal`,
-and `circle`. A future text or voice parser should produce structured command
-names and numeric arguments for that registry instead of invoking MAVSDK or
-shell commands directly.
+`circle`, and `takeoff_circle_land`. The combined runner executes the same
+independent `Takeoff` and centered-circle behavior objects in one offboard
+session. It takes a fresh measured state after takeoff has settled and uses it
+as the circle's airborne center, so the first entry setpoint equals the
+vehicle's current position. The circle still neither takes off nor lands. Once
+circle closure and radial return have settled, the runner invokes landing as a
+separate action.
+
+A future text or voice parser should produce structured command names and
+numeric arguments for that registry instead of invoking MAVSDK or shell
+commands directly.
 
 A separate SITL session manager can later launch PX4/Gazebo in WSL, wait for a
 ready state, configure the Windows MAVLink route, execute one or more registry
