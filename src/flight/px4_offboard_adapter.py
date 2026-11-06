@@ -2,7 +2,10 @@
 
 import asyncio
 import contextlib
+from importlib.resources import files
 import math
+import os
+import subprocess
 from typing import Any
 
 from mavsdk import System
@@ -11,12 +14,40 @@ from mavsdk.offboard import OffboardError, PositionNedYaw
 from .trajectory import TrajectoryPoint, VehicleState
 
 
+class _SessionSystem(System):
+    """Keep the MAVSDK server alive through a Windows console interrupt."""
+
+    @staticmethod
+    def _start_mavsdk_server(system_address, port, sysid, compid):
+        binary = files("mavsdk.bin").joinpath(
+            "mavsdk_server.exe" if os.name == "nt" else "mavsdk_server"
+        )
+        arguments = [
+            str(binary), "-p", str(port), "--sysid", str(sysid),
+            "--compid", str(compid),
+        ]
+        if system_address:
+            arguments.append(system_address)
+        options = (
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if os.name == "nt"
+            else {"start_new_session": True}
+        )
+        return subprocess.Popen(
+            arguments,
+            shell=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **options,
+        )
+
+
 class PX4OffboardAdapter:
     """Translate project trajectory points to MAVSDK offboard commands."""
 
     def __init__(self, connection_url: str = "udpin://0.0.0.0:14540") -> None:
         self.connection_url = connection_url
-        self._drone = System()
+        self._drone = _SessionSystem()
         self._state = VehicleState(0.0, 0.0, 0.0)
         self._position_ready = asyncio.Event()
         self._attitude_ready = asyncio.Event()
@@ -34,6 +65,16 @@ class PX4OffboardAdapter:
                     return
 
         await asyncio.wait_for(wait_connected(), timeout=timeout_s)
+
+    async def wait_until_disconnected(self) -> None:
+        """Observe a lost MAVSDK system connection during a session."""
+
+        seen_connected = False
+        async for state in self._drone.core.connection_state():
+            if state.is_connected:
+                seen_connected = True
+            elif seen_connected:
+                return
 
     async def wait_until_ready(self, timeout_s: float = 30.0) -> None:
         async def wait_health() -> None:

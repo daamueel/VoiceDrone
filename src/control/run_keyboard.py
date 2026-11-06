@@ -1,5 +1,7 @@
-"""Interactive dry-run keyboard controller for VoiceDrone commands."""
+"""Interactive keyboard controller for dry-run and PX4 SITL."""
 
+import argparse
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -174,8 +176,61 @@ def run_keyboard(
             return 0
 
 
+async def run_sitl_keyboard(
+    *,
+    input_fn: Callable[[str], str] = input,
+    output_fn: Callable[[str], None] = print,
+) -> int:
+    """Run typed commands on one connected SITL flight session."""
+
+    from .session import CommandRejected, FlightSession
+
+    output_fn("VoiceDrone keyboard control - PX4 SITL")
+    async with FlightSession() as session:
+        output_fn(f"Telemetry CSV: {session.log.path}")
+        output_fn(f"Command record: {session.record_path}")
+        output_fn("Type 'help' for commands or 'exit' to land and close.")
+        while True:
+            try:
+                text = await asyncio.to_thread(input_fn, "voicedrone> ")
+            except EOFError:
+                output_fn("End of input; closing session.")
+                return 0
+            except KeyboardInterrupt:
+                output_fn("Cancelled; closing session and landing if airborne.")
+                return 130
+
+            try:
+                command = parse_command(text)
+            except CommandParseError as error:
+                output_fn(f"Rejected: {error}")
+                session.record_rejection(text, str(error))
+                continue
+
+            output_fn(f"Parsed command: {command_name(command)}")
+            output_fn(f"Effective parameters: {effective_parameters(command)}")
+            try:
+                result = await session.execute(command)
+            except CommandRejected as error:
+                output_fn(f"Rejected: {error}; no flight action was taken.")
+                continue
+            output_fn(f"Complete: {result.message}")
+            if result.exit_requested:
+                return 0
+
+
 def main() -> None:
-    sys.exit(run_keyboard())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--sitl", action="store_true", help="connect to PX4 SITL at UDP 14540"
+    )
+    args = parser.parse_args()
+    try:
+        status = asyncio.run(run_sitl_keyboard()) if args.sitl else run_keyboard()
+    except KeyboardInterrupt:
+        print("Cancelled")
+        status = 130
+    sys.exit(status)
 
 
 if __name__ == "__main__":
