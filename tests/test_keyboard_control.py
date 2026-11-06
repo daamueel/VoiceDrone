@@ -1,0 +1,103 @@
+from collections.abc import Iterator
+
+import pytest
+
+from control.commands import CircleCommand, TakeoffCommand
+from control.run_keyboard import (
+    DryRunController,
+    FlightState,
+    effective_parameters,
+    run_keyboard,
+)
+
+
+def scripted_input(lines: list[str]) -> tuple[Iterator[str], object]:
+    iterator = iter(lines)
+
+    def read(_: str) -> str:
+        return next(iterator)
+
+    return iterator, read
+
+
+def test_effective_parameters_show_permanent_user_defaults() -> None:
+    assert effective_parameters(TakeoffCommand()) == "altitude=0.500 m"
+    assert effective_parameters(CircleCommand()) == (
+        "behavior=circle_centripetal, direction=clockwise, radius=0.500 m, "
+        "speed=1.000 m/s, angular_velocity=2.000000 rad/s, duration=3.142 s"
+    )
+
+
+def test_dry_run_controller_enforces_flight_state() -> None:
+    controller = DryRunController()
+
+    assert controller.execute(CircleCommand()).rejected
+    assert controller.state is FlightState.LANDED
+    assert not controller.execute(TakeoffCommand()).rejected
+    assert controller.state is FlightState.AIRBORNE
+    assert controller.execute(TakeoffCommand()).rejected
+    assert not controller.execute(CircleCommand()).rejected
+
+
+def test_keyboard_sequence_previews_commands_without_px4() -> None:
+    _, read = scripted_input(
+        [
+            "circle",
+            "takeoff",
+            "takeoff 5",
+            "fixed yaw circle radius 4",
+            "land",
+            "land",
+            "status",
+            "help",
+            "exit",
+        ]
+    )
+    output: list[str] = []
+
+    exit_code = run_keyboard(input_fn=read, output_fn=output.append)
+    joined = "\n".join(output)
+
+    assert exit_code == 0
+    assert "No PX4 connection will be opened" in joined
+    assert "behavior=circle, direction=clockwise, radius=4.000 m" in joined
+    assert "circle is unavailable while landed" in joined
+    assert "takeoff is unavailable while already airborne" in joined
+    assert "land is unavailable while already landed" in joined
+    assert "dry-run flight state is landed" in joined
+    assert "Supported dry-run commands:" in joined
+    assert joined.count("no PX4 action was sent") == 3
+
+
+def test_rejected_text_does_not_change_dry_run_state() -> None:
+    _, read = scripted_input(["takeoff maybe", "status", "exit"])
+    output: list[str] = []
+
+    run_keyboard(input_fn=read, output_fn=output.append)
+    joined = "\n".join(output)
+
+    assert "Rejected: invalid spoken number" in joined
+    assert "dry-run flight state is landed" in joined
+
+
+def test_end_of_input_closes_cleanly() -> None:
+    def end_of_input(_: str) -> str:
+        raise EOFError
+
+    output: list[str] = []
+    assert run_keyboard(input_fn=end_of_input, output_fn=output.append) == 0
+    assert "end of input" in output[-1]
+
+
+def test_keyboard_interrupt_returns_standard_exit_code() -> None:
+    def interrupt(_: str) -> str:
+        raise KeyboardInterrupt
+
+    output: list[str] = []
+    assert run_keyboard(input_fn=interrupt, output_fn=output.append) == 130
+    assert "cancelled" in output[-1]
+
+
+def test_controller_rejects_unknown_structured_type() -> None:
+    with pytest.raises(TypeError, match="unsupported structured command"):
+        DryRunController().execute(object())  # type: ignore[arg-type]
