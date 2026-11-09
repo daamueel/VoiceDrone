@@ -111,6 +111,19 @@ class PX4OffboardAdapter:
     async def arm(self) -> None:
         await self._drone.action.arm()
 
+    async def configure_link_loss_failsafe(self) -> None:
+        """Select PX4's onboard Land action before any SITL flight."""
+
+        for name, land_value in (("COM_OBL_RC_ACT", 4), ("NAV_DLL_ACT", 3)):
+            current = await self._drone.param.get_param_int(name)
+            if current != land_value:
+                await self._drone.param.set_param_int(name, land_value)
+            verified = await self._drone.param.get_param_int(name)
+            if verified != land_value:
+                raise RuntimeError(
+                    f"PX4 failsafe {name} is {verified}, expected {land_value} (Land)"
+                )
+
     async def action_takeoff(self, altitude_m: float) -> None:
         """Use PX4's action takeoff only as runner setup for an airborne test."""
 
@@ -152,13 +165,14 @@ class PX4OffboardAdapter:
             task.cancel()
         try:
             for task in self._tasks:
-                with contextlib.suppress(asyncio.CancelledError):
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         finally:
             self._tasks.clear()
             # MAVSDK Python has no public close method for its embedded server.
             # Stop the process it created so UDP 14540 is reusable by another run.
             self._drone._stop_mavsdk_server()
+            self._drone = None
 
     def _replace(self, **changes: Any) -> None:
         values = self._state.__dict__ | changes

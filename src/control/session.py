@@ -66,6 +66,7 @@ class FlightSession:
         self.record = None
         self.record_path: Path | None = None
         self.connected = False
+        self.connection_lost = False
         self.airborne = False
         self.command: TrajectoryPoint | None = None
         self._connection_task: asyncio.Task[None] | None = None
@@ -82,12 +83,18 @@ class FlightSession:
             await self.adapter.wait_until_ready()
             if self.adapter.state().armed:
                 raise RuntimeError("SITL vehicle is already armed at session start")
+            await self.adapter.configure_link_loss_failsafe()
+            self._record("failsafe_configured", offboard_loss="land", data_link_loss="land")
             self._record("connected")
             if hasattr(self.adapter, "wait_until_disconnected"):
                 owner = asyncio.current_task()
 
                 async def watch_connection() -> None:
-                    await self.adapter.wait_until_disconnected()
+                    try:
+                        await self.adapter.wait_until_disconnected()
+                    except Exception as error:
+                        self._record("connection_watch_failed", error=repr(error))
+                    self.connection_lost = True
                     self._record("disconnected")
                     if owner is not None:
                         owner.cancel("PX4 SITL connection lost")
@@ -112,6 +119,9 @@ class FlightSession:
 
     def record_rejection(self, text: str, reason: str) -> None:
         self._record("rejected", text=text, reason=reason)
+
+    def record_immediate_land(self) -> None:
+        self._record("immediate_land_requested")
 
     def _is_airborne(self) -> bool:
         state = self.adapter.state()
@@ -150,6 +160,9 @@ class FlightSession:
                 raise TypeError(f"unsupported command: {type(command).__name__}")
         except CommandRejected as error:
             self._record("rejected", reason=str(error))
+            raise
+        except asyncio.CancelledError:
+            self._record("interrupted", command=type(command).__name__)
             raise
         except BaseException as error:
             self._record("failed", error=repr(error))
@@ -239,7 +252,9 @@ class FlightSession:
                     await landing
                 except BaseException as error:
                     self._record("cleanup_failed", error=repr(error))
-                    raise
+                    if not self.connection_lost:
+                        raise
+                    self._record("landing_unconfirmed", reason="connection lost")
         finally:
             try:
                 await self.adapter.close()

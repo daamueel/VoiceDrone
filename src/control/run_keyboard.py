@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -19,7 +20,7 @@ from .commands import (
 from .parser import CommandParseError, parse_command
 
 
-HELP_TEXT = """Supported dry-run commands:
+HELP_TEXT = """Supported commands:
   takeoff
   takeoff 5
   take off to 5 meters
@@ -33,7 +34,8 @@ HELP_TEXT = """Supported dry-run commands:
   land
   status
   help
-  exit"""
+  exit
+In PX4 SITL, press L during an active maneuver to land immediately."""
 
 
 class FlightState(str, Enum):
@@ -190,9 +192,10 @@ async def run_sitl_keyboard(
         output_fn(f"Telemetry CSV: {session.log.path}")
         output_fn(f"Command record: {session.record_path}")
         output_fn("Type 'help' for commands or 'exit' to land and close.")
+        output_fn("During a maneuver, press L without Enter to land immediately.")
         while True:
             try:
-                text = await asyncio.to_thread(input_fn, "voicedrone> ")
+                text = await _read_sitl_input(input_fn, "voicedrone> ")
             except EOFError:
                 output_fn("End of input; closing session.")
                 return 0
@@ -210,13 +213,96 @@ async def run_sitl_keyboard(
             output_fn(f"Parsed command: {command_name(command)}")
             output_fn(f"Effective parameters: {effective_parameters(command)}")
             try:
-                result = await session.execute(command)
+                if isinstance(command, (TakeoffCommand, CircleCommand)):
+                    result = await execute_with_land_hotkey(
+                        session, command, output_fn=output_fn
+                    )
+                else:
+                    result = await session.execute(command)
             except CommandRejected as error:
                 output_fn(f"Rejected: {error}; no flight action was taken.")
                 continue
             output_fn(f"Complete: {result.message}")
             if result.exit_requested:
                 return 0
+
+
+async def _read_sitl_input(
+    input_fn: Callable[[str], str], prompt: str
+) -> str:
+    """Keep console input cancellable when the MAVSDK link is lost."""
+
+    if input_fn is not input or sys.platform != "win32" or not sys.stdin.isatty():
+        return await asyncio.to_thread(input_fn, prompt)
+
+    import msvcrt
+
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    characters: list[str] = []
+    while True:
+        if msvcrt.kbhit():
+            key = msvcrt.getwch()
+            if key in ("\r", "\n"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return "".join(characters)
+            if key == "\b":
+                if characters:
+                    characters.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+            elif key in ("\x00", "\xe0"):
+                msvcrt.getwch()
+            elif key.isprintable():
+                characters.append(key)
+                sys.stdout.write(key)
+                sys.stdout.flush()
+        await asyncio.sleep(0.05)
+
+
+def _console_key() -> str | None:
+    """Poll a Windows console without blocking the active flight coroutine."""
+
+    if sys.platform != "win32" or not sys.stdin.isatty():
+        return None
+    import msvcrt
+
+    if msvcrt.kbhit():
+        return msvcrt.getwch()
+    return None
+
+
+async def execute_with_land_hotkey(
+    session: object,
+    command: TakeoffCommand | CircleCommand,
+    *,
+    output_fn: Callable[[str], None] = print,
+    key_fn: Callable[[], str | None] = _console_key,
+):
+    """Let L interrupt an active trajectory and invoke session landing."""
+
+    flight = asyncio.create_task(session.execute(command))
+    try:
+        while not flight.done():
+            key = key_fn()
+            if key is not None and key.casefold() == "l":
+                output_fn("Immediate land requested; stopping active maneuver.")
+                if hasattr(session, "record_immediate_land"):
+                    session.record_immediate_land()
+                flight.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await flight
+                result = await session.execute(LandCommand())
+                return result
+            await asyncio.sleep(0.05)
+        return await flight
+    except BaseException:
+        if not flight.done():
+            flight.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await flight
+        raise
 
 
 def main() -> None:
@@ -227,6 +313,15 @@ def main() -> None:
     args = parser.parse_args()
     try:
         status = asyncio.run(run_sitl_keyboard()) if args.sitl else run_keyboard()
+    except asyncio.CancelledError as error:
+        print(f"SITL session interrupted: {error}")
+        print("Landing and disarm could not be confirmed. Check PX4 SITL status.")
+        status = 1
+    except Exception as error:
+        print(f"{'SITL session' if args.sitl else 'Keyboard control'} failed: {error}")
+        if args.sitl:
+            print("Check PX4 SITL status before another flight.")
+        status = 1
     except KeyboardInterrupt:
         print("Cancelled")
         status = 130
