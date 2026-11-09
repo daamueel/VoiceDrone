@@ -47,6 +47,35 @@ metadata changes; ordinary source edits are picked up immediately.
 An unactivated shell may resolve `python` to MSYS2 Python 3.12, so always
 activate the environment or use `conda run` explicitly.
 
+## Local speech environment (step 5, verified 2026-11-09)
+
+The Windows Python 3.11.15 environment now has these versions installed:
+
+| Component | Version |
+| --- | --- |
+| `sounddevice` | 0.5.6 |
+| `faster-whisper` | 1.2.1 |
+| `ctranslate2` | 4.8.5 |
+| PyAV (`av`) | 18.1.0 |
+| PortAudio bundled with `sounddevice` | V19.7.0-devel |
+
+The selected input is the **Realtek microphone array** through MME, currently
+device index 1 and the Windows default input. It supports mono 16 kHz capture.
+A two-second capture returned 32,000 frames with RMS 0.000018 and peak 0.000122.
+The WASAPI version of the same microphone is currently device index 9; it
+opened at 48 kHz but rejected a direct 16 kHz stream. Device indices may change
+after Windows audio devices are added or removed.
+
+`base.en` is cached outside the repository at
+`C:\Users\daamu\.cache\huggingface\hub\models--Systran--faster-whisper-base.en\snapshots\3d3d5dee26484f91867d81cb899cfcf72b96be6c`.
+It loaded with `device="cpu"` and `compute_type="int8"`; CTranslate2 reported
+the effective compute type as `int8_float32`. An in-memory silence sample ran
+through transcription, but produced `You`, so silence must not be treated as
+a reliable empty transcript. No microphone audio was saved. The microphone
+stream opened successfully, but speech quality has not yet been tested with a
+spoken command. `pip check` reported no broken requirements and the project
+suite passed with 161 tests.
+
 ## Verified WSL/PX4 environment
 
 - Distribution: Ubuntu 24.04.4 LTS under WSL2
