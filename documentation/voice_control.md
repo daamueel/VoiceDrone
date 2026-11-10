@@ -1,0 +1,37 @@
+# Local speech transcription
+
+Step 6 provides transcription without command parsing or flight execution.
+The microphone samples stay in memory and are discarded after each attempt.
+The selected model is `small.en`, running on CPU with int8 requested. `base.en`
+remains available through `--model base.en`.
+
+From the `voicedrone` Windows environment at the repository root:
+
+```powershell
+python -m voice.run_transcription --device 1 --duration 6
+```
+
+Press Enter, speak during the six-second capture, and read the transcript and
+input level. Type `q` to quit. The Realtek microphone array was device 1 when
+tested; check `python -m sounddevice` if Windows changes the device indices.
+The tool does not import the command parser, flight session, or MAVSDK.
+
+On 2026-11-09, `base.en` recognized `Take off to 5 meters` and `land, land`, but
+heard `Hey cough` for `takeoff` and twice missed `circle` (`So cool radius 5`
+and `So Colby`). Vocabulary hints improved `small.en` on the same Realtek input:
+
+| Spoken phrase | `small.en` transcript |
+| --- | --- |
+| circle radius five | `circle, radius 5` |
+| takeoff, repeated | `takeoff, take off` |
+| land | `land` |
+
+With the same hints, `base.en` still returned only `radius 5` for `circle radius
+five`, so `small.en` is the default. A four-second near-silent microphone
+capture returned no transcript (RMS 0.000015, peak 0.000092). Voice activity
+detection filters silence; without it, an earlier synthetic silence sample
+produced `You`. Transcription can still miss words, so later steps must reject
+unknown text and require keyboard confirmation before any flight action.
+
+The downloaded `small.en` model is cached outside the repository at
+`C:\Users\daamu\.cache\huggingface\hub\models--Systran--faster-whisper-small.en\snapshots\d1d751a5f8271d482d14ca55d9e2deeebbae577f`.
