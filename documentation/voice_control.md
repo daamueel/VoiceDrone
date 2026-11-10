@@ -35,3 +35,23 @@ unknown text and require keyboard confirmation before any flight action.
 
 The downloaded `small.en` model is cached outside the repository at
 `C:\Users\daamu\.cache\huggingface\hub\models--Systran--faster-whisper-small.en\snapshots\d1d751a5f8271d482d14ca55d9e2deeebbae577f`.
+
+## Command preview (step 7)
+
+The preview tool sends each transcript to the same deterministic parser used
+by keyboard control. It prints the parsed command and effective parameters or
+the rejection reason, then states that no flight action was taken. It does not
+create a flight session or connect to PX4.
+
+```powershell
+python -m voice.run_voice --device 1 --duration 6
+python -m voice.run_voice --transcript "circle, radius 5" --transcript "takeoff and land"
+```
+
+The second form previews supplied text without opening the microphone. In a
+live microphone check on 2026-11-09, `takeoff to 5 meters` became a takeoff
+preview at 5.000 m; `take off and land` was rejected. Two spoken circle tries
+were heard as `so` and `so cool` and were rejected. A supplied transcript of
+`circle, radius 5` correctly previews the centered inward-facing circle at
+5.000 m radius, 1.000 m/s speed, and 31.416 s duration. Live recognition of
+`circle` is still inconsistent even though one step 6 capture succeeded.
