@@ -85,3 +85,33 @@ A simulated `takeoff` transcript was displayed but given no keyboard
 confirmation. The voice record logged `accepted: false`, had no requested
 flight command, and PX4 remained disarmed. Actual spoken flight execution is
 reserved for step 9.
+
+## Spoken takeoff, circle, and land (step 9)
+
+On 2026-11-11 (Pacific time), PX4 v1.17.0/Gazebo x500 completed a real
+microphone sequence with separate spoken commands. The user typed `YES` in the
+Codex chat after each preview; that confirmation was relayed to the waiting
+CLI. The first capture was silent and rejected without a flight action.
+
+| Spoken command | Transcript | Parsed action | Result |
+| --- | --- | --- | --- |
+| takeoff | `take off` | takeoff to 0.500 m | settled and remained airborne |
+| circle radius five | `circle, radius 5` | clockwise `circle_centripetal`, 5.000 m radius | full circle, closure, and return completed |
+| land | `land` | land and wait for disarm | touchdown and disarm completed |
+
+The UTC artifacts are
+`logs/control_20261112T015647430226Z_voice.jsonl`,
+`logs/sitl_20261112T015647Z_control_20261112T015647430226Z.csv`, and the
+matching `_ne.png` path plot. The record contains one accepted confirmation
+before each requested command and no unexpected flight command. The CSV has
+1,256 rows: 195 takeoff, 154 entry, 642 circle, 47 closure, 154 return, and
+64 landing samples. Its final sample is disarmed at -0.012 m down position.
+
+CSV analysis reported a 5.002 m measured mean circle radius against 5.000 m
+commanded, 0.025 m radial RMSE, 0.992 m/s measured speed against 1.000 m/s
+commanded, and 0.005 m mean altitude error during the circle. The return ended
+0.138 m from the airborne center; touchdown was 0.026 m from that center.
+PX4 separately reported `Disarmed by landing`. The takeoff settled 0.165 m
+short of the 0.500 m commanded gain, within the configured settling criteria.
+The voice session exited cleanly, prior PX4 failsafe parameter values were
+restored, and PX4/Gazebo and MAVSDK Server were shut down.
