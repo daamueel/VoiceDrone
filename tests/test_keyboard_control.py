@@ -166,3 +166,27 @@ def test_console_input_can_be_cancelled_on_connection_loss(monkeypatch) -> None:
             await asyncio.wait_for(reading, 1.0)
 
     asyncio.run(scenario())
+
+
+def test_confirmation_ignores_keys_typed_before_preview(monkeypatch) -> None:
+    class ConsoleInput:
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", ConsoleInput())
+    monkeypatch.setattr(sys, "platform", "win32")
+    import msvcrt
+
+    pending = list("YES\r")
+    monkeypatch.setattr(msvcrt, "kbhit", lambda: bool(pending))
+    monkeypatch.setattr(msvcrt, "getwch", lambda: pending.pop(0))
+
+    async def scenario() -> str:
+        reading = asyncio.create_task(
+            _read_sitl_input(input, "confirm> ", clear_pending=True)
+        )
+        await asyncio.sleep(0.1)
+        pending.extend("no\r")
+        return await asyncio.wait_for(reading, 1.0)
+
+    assert asyncio.run(scenario()) == "no"

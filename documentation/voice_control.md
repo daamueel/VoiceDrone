@@ -55,3 +55,33 @@ were heard as `so` and `so cool` and were rejected. A supplied transcript of
 `circle, radius 5` correctly previews the centered inward-facing circle at
 5.000 m radius, 1.000 m/s speed, and 31.416 s duration. Live recognition of
 `circle` is still inconsistent even though one step 6 capture succeeded.
+
+## Keyboard confirmation and SITL gate (step 8)
+
+To enable spoken commands against the same persistent session used by keyboard
+control, launch PX4 v1.17.0 with Gazebo x500 and route its MAVLink stream to
+Windows as described in `setup.md`, then run:
+
+```powershell
+python -m voice.run_voice --sitl --device 1 --duration 6
+```
+
+The program shows the transcript, parsed command, effective parameters, and
+complete action. Type `YES` at the keyboard after that preview to execute it;
+any other response cancels it. On the verified Windows console, keys entered
+before the confirmation prompt are discarded. Rejected transcripts never prompt
+for confirmation. `--transcript`
+remains preview-only and cannot be combined with `--sitl`.
+
+Before changing PX4 parameters or arming, the shared session checks
+`SYS_AUTOSTART=4001` and `SIM_GZ_EN=1`, the configured Gazebo x500 SITL setup.
+The voice CLI has no option for a hardware address. Confirmed commands use the
+existing `FlightSession`, including state validation, logs, cancellation,
+landing cleanup, and the immediate `L` land key during a maneuver. Records are
+named `control_<UTC-timestamp>_voice.jsonl`; raw audio is not saved.
+
+On 2026-11-11, a live disarmed Gazebo x500 connection passed the SITL check.
+A simulated `takeoff` transcript was displayed but given no keyboard
+confirmation. The voice record logged `accepted: false`, had no requested
+flight command, and PX4 remained disarmed. Actual spoken flight execution is
+reserved for step 9.

@@ -111,6 +111,21 @@ class PX4OffboardAdapter:
     async def arm(self) -> None:
         await self._drone.action.arm()
 
+    async def verify_sitl(self) -> None:
+        """Accept only the PX4 Gazebo x500 configuration used by this project."""
+
+        for name, expected in (("SYS_AUTOSTART", 4001), ("SIM_GZ_EN", 1)):
+            try:
+                actual = await self._drone.param.get_param_int(name)
+            except Exception as error:
+                raise RuntimeError(
+                    f"PX4 Gazebo SITL verification failed: {name} is unavailable"
+                ) from error
+            if actual != expected:
+                raise RuntimeError(
+                    f"PX4 Gazebo SITL required: {name}={actual}, expected {expected}"
+                )
+
     async def configure_link_loss_failsafe(self) -> None:
         """Select PX4's onboard Land action before any SITL flight."""
 

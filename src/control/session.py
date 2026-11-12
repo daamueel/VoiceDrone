@@ -83,6 +83,8 @@ class FlightSession:
             await self.adapter.wait_until_ready()
             if self.adapter.state().armed:
                 raise RuntimeError("SITL vehicle is already armed at session start")
+            await self.adapter.verify_sitl()
+            self._record("sitl_verified", airframe=4001, gazebo_bridge=True)
             await self.adapter.configure_link_loss_failsafe()
             self._record("failsafe_configured", offboard_loss="land", data_link_loss="land")
             self._record("connected")
@@ -122,6 +124,12 @@ class FlightSession:
 
     def record_immediate_land(self) -> None:
         self._record("immediate_land_requested")
+
+    def record_voice_transcript(self, text: str) -> None:
+        self._record("voice_transcript", text=text)
+
+    def record_voice_confirmation(self, accepted: bool) -> None:
+        self._record("voice_confirmation", accepted=accepted)
 
     def _is_airborne(self) -> bool:
         state = self.adapter.state()

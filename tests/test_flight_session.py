@@ -25,6 +25,9 @@ class FakeAdapter:
     async def wait_until_ready(self) -> None:
         self.calls.append("ready")
 
+    async def verify_sitl(self) -> None:
+        self.calls.append("verify_sitl")
+
     async def configure_link_loss_failsafe(self) -> None:
         self.calls.append("configure_failsafe")
 
@@ -82,6 +85,7 @@ def test_session_rejects_invalid_order_and_keeps_one_connection(tmp_path, monkey
 
     asyncio.run(scenario())
     assert adapter.calls.count("connect") == 1
+    assert adapter.calls.index("verify_sitl") < adapter.calls.index("configure_failsafe")
     assert adapter.calls.index("configure_failsafe") < adapter.calls.index("arm")
     assert adapter.calls.count("land") == 1
     assert adapter.calls[-1] == "close"
@@ -235,6 +239,44 @@ def test_adapter_rejects_unverified_failsafe_setting() -> None:
     ))
     with pytest.raises(RuntimeError, match="COM_OBL_RC_ACT"):
         asyncio.run(adapter.configure_link_loss_failsafe())
+
+
+def test_adapter_accepts_only_gazebo_x500_sitl() -> None:
+    values = {"SYS_AUTOSTART": 4001, "SIM_GZ_EN": 1}
+
+    async def get_param(name):
+        return values[name]
+
+    adapter = PX4OffboardAdapter()
+    adapter._drone = SimpleNamespace(param=SimpleNamespace(get_param_int=get_param))
+    asyncio.run(adapter.verify_sitl())
+
+    values["SIM_GZ_EN"] = 0
+    with pytest.raises(RuntimeError, match="SIM_GZ_EN"):
+        asyncio.run(adapter.verify_sitl())
+
+    values.update(SIM_GZ_EN=1, SYS_AUTOSTART=4019)
+    with pytest.raises(RuntimeError, match="SYS_AUTOSTART"):
+        asyncio.run(adapter.verify_sitl())
+
+
+def test_session_rejects_non_sitl_before_failsafe_changes(tmp_path) -> None:
+    class WrongVehicle(FakeAdapter):
+        async def verify_sitl(self) -> None:
+            self.calls.append("verify_sitl")
+            raise RuntimeError("not Gazebo SITL")
+
+    adapter = WrongVehicle()
+
+    async def scenario() -> None:
+        with pytest.raises(RuntimeError, match="not Gazebo SITL"):
+            async with FlightSession(adapter=adapter, directory=tmp_path):
+                pass
+
+    asyncio.run(scenario())
+    assert "configure_failsafe" not in adapter.calls
+    assert "arm" not in adapter.calls
+    assert adapter.calls[-1] == "close"
 
 
 def test_adapter_closes_after_telemetry_stream_fails() -> None:

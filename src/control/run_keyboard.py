@@ -228,7 +228,7 @@ async def run_sitl_keyboard(
 
 
 async def _read_sitl_input(
-    input_fn: Callable[[str], str], prompt: str
+    input_fn: Callable[[str], str], prompt: str, *, clear_pending: bool = False
 ) -> str:
     """Keep console input cancellable when the MAVSDK link is lost."""
 
@@ -236,6 +236,10 @@ async def _read_sitl_input(
         return await asyncio.to_thread(input_fn, prompt)
 
     import msvcrt
+
+    if clear_pending:
+        while msvcrt.kbhit():
+            msvcrt.getwch()
 
     sys.stdout.write(prompt)
     sys.stdout.flush()
