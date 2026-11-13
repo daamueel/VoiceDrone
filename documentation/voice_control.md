@@ -67,10 +67,10 @@ python -m voice.run_voice --sitl --device 1 --duration 6
 ```
 
 The program shows the transcript, parsed command, effective parameters, and
-complete action. Type `YES` at the keyboard after that preview to execute it;
-any other response cancels it. On the verified Windows console, keys entered
-before the confirmation prompt are discarded. Rejected transcripts never prompt
-for confirmation. `--transcript`
+complete action. Type `Y` (or `y`) at the keyboard after that preview to execute
+it; `N` (or `n`) cancels it. Any other response also cancels it. On the verified
+Windows console, keys entered before the confirmation prompt are discarded.
+Rejected transcripts never prompt for confirmation. `--transcript`
 remains preview-only and cannot be combined with `--sitl`.
 
 Before changing PX4 parameters or arming, the shared session checks
@@ -114,4 +114,24 @@ commanded, and 0.005 m mean altitude error during the circle. The return ended
 PX4 separately reported `Disarmed by landing`. The takeoff settled 0.165 m
 short of the 0.500 m commanded gain, within the configured settling criteria.
 The voice session exited cleanly, prior PX4 failsafe parameter values were
+restored, and PX4/Gazebo and MAVSDK Server were shut down.
+
+### Visible Gazebo rerun
+
+On 2026-11-12 (Pacific time), the spoken sequence was repeated with Gazebo's
+GUI running. The user confirmed the x500 simulation window was visible before
+arming. The separate microphone captures produced `take off`, `circle, radius
+5`, and `land`. Each parsed command was previewed, and the user's `YES` in the
+Codex chat was relayed to the waiting CLI. All three commands completed; the
+circle returned to its airborne start, and landing ended disarmed. PX4 reported
+no failsafe.
+
+The record is `logs/control_20261112T225206697538Z_voice.jsonl`; telemetry is
+`logs/sitl_20261112T225206Z_control_20261112T225206697538Z.csv` with a matching
+`_ne.png` path plot. CSV analysis found a 4.993 m mean radius against 5.000 m
+commanded, 0.025 m radial RMSE, 0.963 m/s mean measured speed, and 0.006 m
+mean altitude error during the circle. The return ended 0.126 m from the
+airborne center, and touchdown was 0.019 m from it. The takeoff settled
+0.158 m below the requested 0.500 m gain, within its configured settling
+criteria. The voice CLI exited cleanly, the prior PX4 failsafe parameters were
 restored, and PX4/Gazebo and MAVSDK Server were shut down.

@@ -112,7 +112,7 @@ async def run_voice_sitl(
     output_fn: Callable[[str], None] = print,
     session_factory: Callable[..., object] | None = None,
 ) -> int:
-    """Use the shared flight session only after typed YES for each voice command."""
+    """Use the shared flight session only after typed Y for each voice command."""
 
     from control.session import CommandRejected, FlightSession
 
@@ -123,7 +123,7 @@ async def run_voice_sitl(
     async with factory(input_type="voice") as session:
         output_fn(f"Telemetry CSV: {session.log.path}")
         output_fn(f"Command record: {session.record_path}")
-        output_fn("Each spoken command requires typed YES before execution.")
+        output_fn("Each spoken command requires typed Y before execution.")
         output_fn("During a maneuver, press L without Enter to land immediately.")
         while True:
             response = await _read_sitl_input(
@@ -146,10 +146,10 @@ async def run_voice_sitl(
                 continue
 
             answer = await _read_sitl_input(
-                input_fn, "Type YES to execute, or Enter to cancel: ",
+                input_fn, "Type Y to execute, or N to cancel: ",
                 clear_pending=True,
             )
-            confirmed = answer.strip().casefold() == "yes"
+            confirmed = answer.strip().casefold() == "y"
             session.record_voice_confirmation(confirmed)
             if not confirmed:
                 output_fn("Cancelled; no flight action was taken.")

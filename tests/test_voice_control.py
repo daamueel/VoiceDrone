@@ -72,7 +72,13 @@ def test_microphone_preview_only_shows_commands_and_rejections() -> None:
     assert "Flight action: none (rejected)" in output
 
 
-def test_sitl_voice_requires_confirmation_for_each_spoken_command() -> None:
+@pytest.mark.parametrize(
+    ("decline", "accept"),
+    [("n", "y"), ("N", "Y"), ("YES", "Y"), ("CANCEL", "y")],
+)
+def test_sitl_voice_requires_confirmation_for_each_spoken_command(
+    decline: str, accept: str,
+) -> None:
     class FakeRecognizer:
         def __init__(self) -> None:
             self.transcripts = iter(("takeoff", "takeoff and land", "circle radius 5"))
@@ -114,7 +120,7 @@ def test_sitl_voice_requires_confirmation_for_each_spoken_command() -> None:
             self.executed.append(command)
             return FlightResult("complete")
 
-    answers = iter(("", "", "", "", "yes", "q"))
+    answers = iter(("", decline, "", "", accept, "q"))
     output: list[str] = []
     status = asyncio.run(run_voice_sitl(
         FakeRecognizer(), duration_s=1.0,
@@ -127,6 +133,7 @@ def test_sitl_voice_requires_confirmation_for_each_spoken_command() -> None:
     assert FakeSession.instance.confirmations == [False, True]
     assert FakeSession.instance.rejections == ["takeoff and land"]
     assert "Cancelled; no flight action was taken." in output
+    assert "Each spoken command requires typed Y before execution." in output
     assert any(line.startswith("Action after confirmation:") for line in output)
 
 
