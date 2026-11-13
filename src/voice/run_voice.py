@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import sys
 
 from control.commands import (
-    CircleCommand, Command, ExitCommand, HelpCommand, LandCommand,
+    CircleBehavior, CircleCommand, Command, ExitCommand, HelpCommand, LandCommand,
     StatusCommand, TakeoffCommand,
 )
 from control.parser import CommandParseError, parse_command
@@ -49,7 +49,11 @@ def show_preview(
         output_fn(f"Parsed command: {command_name(preview.command)}")
         output_fn(f"Effective parameters: {effective_parameters(preview.command)}")
         if execution_enabled:
-            output_fn(f"Action after confirmation: {describe_action(preview.command)}")
+            output_fn(
+                f'Confirmation: Transcript "{preview.transcript}" parsed as '
+                f"{describe_action(preview.command)} in PX4 SITL. "
+                "Type Y to execute, or N to skip it."
+            )
             output_fn("Flight action: none yet; keyboard confirmation required")
         else:
             output_fn("Flight action: none (preview only)")
@@ -59,10 +63,14 @@ def describe_action(command: Command) -> str:
     if isinstance(command, TakeoffCommand):
         return f"take off to {command.altitude_m:.3f} m and remain airborne"
     if isinstance(command, CircleCommand):
+        facing = (
+            "fixed-heading" if command.behavior is CircleBehavior.FIXED_YAW
+            else "inward-facing"
+        )
         return (
-            f"fly one {command.direction.value} {command.behavior.value} circle "
-            f"at {command.radius_m:.3f} m radius, return to the airborne start, "
-            "and remain airborne"
+            f"one {command.direction.value}, {facing} circle at "
+            f"{command.radius_m:.3f} m radius and {command.speed_m_s:.3f} m/s, "
+            "then return to its airborne start and remain airborne"
         )
     if isinstance(command, LandCommand):
         return "land and wait for disarm"

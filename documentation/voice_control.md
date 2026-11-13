@@ -56,6 +56,12 @@ were heard as `so` and `so cool` and were rejected. A supplied transcript of
 5.000 m radius, 1.000 m/s speed, and 31.416 s duration. Live recognition of
 `circle` is still inconsistent even though one step 6 capture succeeded.
 
+Circle phrases with an explicit `radius` use that value as the radius. A number
+without `radius` is the diameter: `five-meter circle`, `circle five meters
+wide`, and `circle 5` each select a 2.5 m radius. A bare `circle` keeps the
+0.5 m default radius. The confirmation preview repeats the transcript and
+states the interpreted radius and speed before `Y` can execute a command.
+
 ## Keyboard confirmation and SITL gate (step 8)
 
 To enable spoken commands against the same persistent session used by keyboard

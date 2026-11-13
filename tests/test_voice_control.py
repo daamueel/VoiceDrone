@@ -9,7 +9,9 @@ import pytest
 
 from control.commands import CircleBehavior, CircleCommand, LandCommand, TakeoffCommand
 from control.session import FlightResult
-from voice.run_voice import main, preview_transcript, run_voice_preview, run_voice_sitl
+from voice.run_voice import (
+    main, preview_transcript, run_voice_preview, run_voice_sitl, show_preview,
+)
 
 
 @pytest.mark.parametrize(
@@ -26,6 +28,28 @@ def test_live_style_transcript_uses_keyboard_parser(transcript, expected) -> Non
     assert preview.rejection is None
     if isinstance(preview.command, CircleCommand):
         assert preview.command.behavior is CircleBehavior.CENTRIPETAL
+
+
+@pytest.mark.parametrize(
+    ("transcript", "radius"),
+    [
+        ("circle, radius 5", "5.000"),
+        ("circle five meters wide", "2.500"),
+        ("five-meter circle", "2.500"),
+    ],
+)
+def test_circle_confirmation_paraphrases_radius_with_transcript(
+    transcript: str, radius: str,
+) -> None:
+    output: list[str] = []
+    show_preview(preview_transcript(transcript), execution_enabled=True, output_fn=output.append)
+
+    confirmation = next(line for line in output if line.startswith("Confirmation:"))
+    assert f'Transcript "{transcript}"' in confirmation
+    assert f"{radius} m radius and 1.000 m/s" in confirmation
+    assert "one clockwise, inward-facing circle" in confirmation
+    assert "return to its airborne start and remain airborne in PX4 SITL" in confirmation
+    assert "Type Y to execute, or N to skip it." in confirmation
 
 
 @pytest.mark.parametrize(
@@ -134,7 +158,7 @@ def test_sitl_voice_requires_confirmation_for_each_spoken_command(
     assert FakeSession.instance.rejections == ["takeoff and land"]
     assert "Cancelled; no flight action was taken." in output
     assert "Each spoken command requires typed Y before execution." in output
-    assert any(line.startswith("Action after confirmation:") for line in output)
+    assert any(line.startswith("Confirmation: Transcript") for line in output)
 
 
 def test_supplied_transcript_cannot_enable_sitl_execution(monkeypatch) -> None:

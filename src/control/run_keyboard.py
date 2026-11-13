@@ -26,6 +26,8 @@ HELP_TEXT = """Supported commands:
   take off to 5 meters
   circle
   circle radius 5
+  five-meter circle (5 m diameter, 2.5 m radius)
+  circle five meters wide (5 m diameter, 2.5 m radius)
   clockwise circle radius 5
   counterclockwise circle radius 5
   centripetal radius 5

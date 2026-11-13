@@ -67,7 +67,7 @@ _DIGIT_WORDS = {
 def _tokens(text: str) -> list[str]:
     if not isinstance(text, str) or not text.strip():
         raise CommandParseError("command is empty")
-    normalized = re.sub(r"(?<=[a-z])-(?=[a-z])", " ", text.casefold())
+    normalized = re.sub(r"(?<=[a-z0-9])-(?=[a-z])", " ", text.casefold())
     return [
         token
         for token in _TOKEN_PATTERN.findall(normalized)
@@ -246,10 +246,21 @@ def _circle(tokens: list[str]) -> CircleCommand:
     remainder = [token for token in tokens if token not in structural]
     if not remainder:
         radius = CircleCommand().radius_m
-    else:
-        if remainder.count("radius") != 1 or remainder[0] != "radius":
-            raise CommandParseError("circle parameters must use 'radius <number>'")
+    elif remainder[0] == "radius":
         radius = _parse_measurement(remainder[1:], name="circle radius")
+    elif remainder[-1] == "radius":
+        radius = _parse_measurement(remainder[:-1], name="circle radius")
+    else:
+        # A numbered circle without "radius" describes its full width.
+        diameter_tokens = remainder
+        if diameter_tokens[0] == "diameter":
+            diameter_tokens = diameter_tokens[1:]
+        elif diameter_tokens[-2:] == ["in", "diameter"]:
+            diameter_tokens = diameter_tokens[:-2]
+        elif diameter_tokens[-1] in {"wide", "across"}:
+            diameter_tokens = diameter_tokens[:-1]
+        diameter = _parse_measurement(diameter_tokens, name="circle diameter")
+        radius = diameter / 2
 
     try:
         return CircleCommand(
