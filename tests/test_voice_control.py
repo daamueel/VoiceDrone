@@ -71,29 +71,66 @@ def test_unknown_repeated_or_ambiguous_transcript_is_rejected(transcript) -> Non
 
 
 def test_microphone_preview_only_shows_commands_and_rejections() -> None:
+    class FakeMicrophone:
+        def __init__(self) -> None:
+            self.utterances = iter((object(), object(), object(), None))
+            self.paused = False
+            self.resumes = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.paused = True
+
+        async def next_utterance(self, *, key_fn):
+            assert not self.paused
+            self.paused = True
+            return next(self.utterances)
+
+        def resume(self):
+            self.paused = False
+            self.resumes += 1
+
     class FakeRecognizer:
         def __init__(self) -> None:
-            self.transcripts: Iterator[str] = iter(("takeoff", "takeoff and land"))
+            self.transcripts: Iterator[str] = iter(("takeoff", "", "takeoff and land"))
+            self.microphone = FakeMicrophone()
 
         def input_device(self):
             return 1, "Test microphone"
 
-        def recognize(self, duration_s):
-            assert duration_s == 2.0
+        def open_stream(self, *, max_utterance_s):
+            assert max_utterance_s == 2.0
+            return self.microphone
+
+        def transcribe_audio(self, audio):
             return SimpleNamespace(text=next(self.transcripts), rms=0.02, peak=0.2)
 
-    answers = iter(("", "", "q"))
+    recognizer = FakeRecognizer()
     output: list[str] = []
     status = run_voice_preview(
-        FakeRecognizer(), duration_s=2.0,
-        input_fn=lambda _: next(answers), output_fn=output.append,
+        recognizer, max_utterance_s=2.0,
+        input_fn=lambda _: "", output_fn=output.append,
     )
 
     assert status == 0
+    assert recognizer.microphone.resumes == 3
     assert "Parsed command: takeoff" in output
     assert any(line.startswith("Rejected:") for line in output)
     assert "Flight action: none (preview only)" in output
     assert "Flight action: none (rejected)" in output
+
+
+def test_preview_can_quit_before_opening_microphone() -> None:
+    class FakeRecognizer:
+        def input_device(self):
+            return 1, "Test microphone"
+
+        def open_stream(self, **_):
+            pytest.fail("microphone opened before Enter")
+
+    assert run_voice_preview(FakeRecognizer(), input_fn=lambda _: "q") == 0
 
 
 @pytest.mark.parametrize(
@@ -103,14 +140,40 @@ def test_microphone_preview_only_shows_commands_and_rejections() -> None:
 def test_sitl_voice_requires_confirmation_for_each_spoken_command(
     decline: str, accept: str,
 ) -> None:
+    class FakeMicrophone:
+        def __init__(self) -> None:
+            self.utterances = iter((object(), object(), object(), object(), None))
+            self.paused = False
+            self.resumes = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.paused = True
+
+        async def next_utterance(self, *, key_fn):
+            assert not self.paused
+            self.paused = True
+            return next(self.utterances)
+
+        def resume(self):
+            self.paused = False
+            self.resumes += 1
+
     class FakeRecognizer:
         def __init__(self) -> None:
-            self.transcripts = iter(("takeoff", "takeoff and land", "circle radius 5"))
+            self.transcripts = iter(("takeoff", "", "takeoff and land", "circle radius 5"))
+            self.microphone = FakeMicrophone()
 
         def input_device(self):
             return 1, "Test microphone"
 
-        def recognize(self, duration_s):
+        def open_stream(self, *, max_utterance_s):
+            assert max_utterance_s == 2.0
+            return self.microphone
+
+        def transcribe_audio(self, audio):
             return SimpleNamespace(text=next(self.transcripts), rms=0.02, peak=0.2)
 
     class FakeSession:
@@ -141,18 +204,21 @@ def test_sitl_voice_requires_confirmation_for_each_spoken_command(
             self.rejections.append(text)
 
         async def execute(self, command):
+            assert recognizer.microphone.paused
             self.executed.append(command)
             return FlightResult("complete")
 
-    answers = iter(("", decline, "", "", accept, "q"))
+    recognizer = FakeRecognizer()
+    answers = iter(("", decline, accept))
     output: list[str] = []
     status = asyncio.run(run_voice_sitl(
-        FakeRecognizer(), duration_s=1.0,
+        recognizer, max_utterance_s=2.0,
         input_fn=lambda _: next(answers), output_fn=output.append,
         session_factory=FakeSession,
     ))
 
     assert status == 0
+    assert recognizer.microphone.resumes == 4
     assert FakeSession.instance.executed == [CircleCommand(radius_m=5.0)]
     assert FakeSession.instance.confirmations == [False, True]
     assert FakeSession.instance.rejections == ["takeoff and land"]

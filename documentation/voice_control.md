@@ -44,16 +44,22 @@ the rejection reason, then states that no flight action was taken. It does not
 create a flight session or connect to PX4.
 
 ```powershell
-python -m voice.run_voice --device 1 --duration 6
+python -m voice.run_voice --device 1
 python -m voice.run_voice --transcript "circle, radius 5" --transcript "takeoff and land"
 ```
 
-The second form previews supplied text without opening the microphone. In a
-live microphone check on 2026-11-09, `takeoff to 5 meters` became a takeoff
-preview at 5.000 m; `take off and land` was rejected. Two spoken circle tries
-were heard as `so` and `so cool` and were rejected. A supplied transcript of
-`circle, radius 5` correctly previews the centered inward-facing circle at
-5.000 m radius, 1.000 m/s speed, and 31.416 s duration. Live recognition of
+For the microphone form, press Enter once to start continuous listening. The
+microphone stays open until `Q` stops the session. Streaming Silero VAD waits
+for a completed phrase before Whisper transcribes it; no provisional word can
+become a command. Blank transcripts are ignored. `--max-utterance` defaults to
+10 seconds and caps one phrase; `--duration` remains an alias for this cap, not
+a fixed recording window. The separate `run_transcription` tool above still
+uses fixed captures. The second form previews supplied text without opening
+the microphone. In a live microphone check on 2026-11-09, `takeoff to 5 meters`
+became a takeoff preview at 5.000 m; `take off and land` was rejected. Two spoken
+circle tries were heard as `so` and `so cool` and were rejected. A supplied
+transcript of `circle, radius 5` correctly previews the centered inward-facing
+circle at 5.000 m radius, 1.000 m/s speed, and 31.416 s duration. Live recognition of
 `circle` is still inconsistent even though one step 6 capture succeeded.
 
 Circle phrases with an explicit `radius` use that value as the radius. A number
@@ -69,15 +75,24 @@ control, launch PX4 v1.17.0 with Gazebo x500 and route its MAVLink stream to
 Windows as described in `setup.md`, then run:
 
 ```powershell
-python -m voice.run_voice --sitl --device 1 --duration 6
+python -m voice.run_voice --sitl --device 1
 ```
 
-The program shows the transcript, parsed command, effective parameters, and
+Press Enter once to begin listening. Speech detection runs on incoming audio
+and Whisper transcribes a phrase after its ending pause. Blank or unsupported
+phrases do not prompt for confirmation; listening continues. The program shows
+the transcript, parsed command, effective parameters, and
 complete action. Type `Y` (or `y`) at the keyboard after that preview to execute
 it; `N` (or `n`) cancels it. Any other response also cancels it. On the verified
 Windows console, keys entered before the confirmation prompt are discarded.
 Rejected transcripts never prompt for confirmation. `--transcript`
 remains preview-only and cannot be combined with `--sitl`.
+
+The microphone device remains open during confirmation and flight execution,
+but incoming samples are discarded. Listening resumes with an empty buffer
+after confirmation, cancellation, or execution. Press `Q` while listening to
+end the session; session cleanup lands if airborne. During an active maneuver,
+`L` remains the immediate land key. No ASR confidence threshold is used.
 
 Before changing PX4 parameters or arming, the shared session checks
 `SYS_AUTOSTART=4001` and `SIM_GZ_EN=1`, the configured Gazebo x500 SITL setup.

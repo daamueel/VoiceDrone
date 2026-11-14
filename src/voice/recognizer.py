@@ -7,6 +7,8 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
+from .continuous import ContinuousMicrophone, DEFAULT_MAX_UTTERANCE_SECONDS
+
 
 SAMPLE_RATE = 16_000
 DEFAULT_MODEL_NAME = "small.en"
@@ -25,7 +27,7 @@ class RecognitionResult:
 
 
 class MicrophoneRecognizer:
-    """Capture one utterance in memory and transcribe it with local Whisper."""
+    """Transcribe recorded phrases with the cached local Whisper model."""
 
     def __init__(
         self, *, device: int | None = None, model_name: str = DEFAULT_MODEL_NAME
@@ -56,6 +58,17 @@ class MicrophoneRecognizer:
             dtype="float32", device=index, blocking=True,
         )
         audio = np.asarray(recording[:, 0], dtype=np.float32)
+        return self.transcribe_audio(audio)
+
+    def open_stream(
+        self, *, max_utterance_s: float = DEFAULT_MAX_UTTERANCE_SECONDS,
+    ) -> ContinuousMicrophone:
+        index, _ = self.input_device()
+        return ContinuousMicrophone(device=index, max_utterance_s=max_utterance_s)
+
+    def transcribe_audio(self, audio: np.ndarray) -> RecognitionResult:
+        """Transcribe one completed utterance; keep its samples in memory only."""
+
         rms = float(np.sqrt(np.mean(np.square(audio))))
         peak = float(np.max(np.abs(audio)))
 

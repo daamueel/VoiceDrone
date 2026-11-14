@@ -12,10 +12,11 @@ from control.commands import (
 )
 from control.parser import CommandParseError, parse_command
 from control.run_keyboard import (
-    _read_sitl_input, command_name, effective_parameters,
+    _console_key, _read_sitl_input, command_name, effective_parameters,
     execute_with_land_hotkey,
 )
 
+from .continuous import DEFAULT_MAX_UTTERANCE_SECONDS
 from .recognizer import DEFAULT_MODEL_NAME, MicrophoneRecognizer, SUPPORTED_MODELS
 
 
@@ -83,28 +84,61 @@ def describe_action(command: Command) -> str:
     raise TypeError(f"unsupported command: {type(command).__name__}")
 
 
-def run_voice_preview(
+async def _start_listening(
+    input_fn: Callable[[str], str], output_fn: Callable[[str], None],
+) -> bool:
+    while True:
+        response = await _read_sitl_input(
+            input_fn, "Press Enter to start listening, or type q to quit: "
+        )
+        if response.strip().casefold() == "q":
+            return False
+        if not response.strip():
+            return True
+        output_fn("Type q or press Enter; listening has not started.")
+
+
+async def _run_voice_preview(
     recognizer: MicrophoneRecognizer,
     *,
-    duration_s: float = 6.0,
+    max_utterance_s: float = DEFAULT_MAX_UTTERANCE_SECONDS,
     input_fn: Callable[[str], str] = input,
     output_fn: Callable[[str], None] = print,
+    key_fn: Callable[[], str | None] = _console_key,
 ) -> int:
     index, name = recognizer.input_device()
     output_fn(f"Input device {index}: {name}")
     output_fn("Voice command preview. No PX4 connection or flight action is used.")
-    try:
+    if not await _start_listening(input_fn, output_fn):
+        return 0
+    with recognizer.open_stream(max_utterance_s=max_utterance_s) as microphone:
+        output_fn("Listening continuously. Press Q to stop.")
         while True:
-            response = input_fn("Press Enter to record, or type q to quit: ")
-            if response.strip().casefold() == "q":
+            audio = await microphone.next_utterance(key_fn=key_fn)
+            if audio is None:
                 return 0
-            if response.strip():
-                output_fn("Type q or press Enter; no recording started.")
-                continue
-            output_fn(f"Recording for {duration_s:g} seconds...")
-            result = recognizer.recognize(duration_s)
-            output_fn(f"Input level: RMS={result.rms:.6f}, peak={result.peak:.6f}")
-            show_preview(preview_transcript(result.text), output_fn=output_fn)
+            try:
+                result = await asyncio.to_thread(recognizer.transcribe_audio, audio)
+                if result.text.strip():
+                    output_fn(f"Input level: RMS={result.rms:.6f}, peak={result.peak:.6f}")
+                    show_preview(preview_transcript(result.text), output_fn=output_fn)
+            finally:
+                microphone.resume()
+
+
+def run_voice_preview(
+    recognizer: MicrophoneRecognizer,
+    *,
+    max_utterance_s: float = DEFAULT_MAX_UTTERANCE_SECONDS,
+    input_fn: Callable[[str], str] = input,
+    output_fn: Callable[[str], None] = print,
+    key_fn: Callable[[], str | None] = _console_key,
+) -> int:
+    try:
+        return asyncio.run(_run_voice_preview(
+            recognizer, max_utterance_s=max_utterance_s,
+            input_fn=input_fn, output_fn=output_fn, key_fn=key_fn,
+        ))
     except EOFError:
         return 0
     except KeyboardInterrupt:
@@ -115,9 +149,10 @@ def run_voice_preview(
 async def run_voice_sitl(
     recognizer: MicrophoneRecognizer,
     *,
-    duration_s: float = 6.0,
+    max_utterance_s: float = DEFAULT_MAX_UTTERANCE_SECONDS,
     input_fn: Callable[[str], str] = input,
     output_fn: Callable[[str], None] = print,
+    key_fn: Callable[[], str | None] = _console_key,
     session_factory: Callable[..., object] | None = None,
 ) -> int:
     """Use the shared flight session only after typed Y for each voice command."""
@@ -133,55 +168,67 @@ async def run_voice_sitl(
         output_fn(f"Command record: {session.record_path}")
         output_fn("Each spoken command requires typed Y before execution.")
         output_fn("During a maneuver, press L without Enter to land immediately.")
-        while True:
-            response = await _read_sitl_input(
-                input_fn, "Press Enter to record, or type q to quit: "
-            )
-            if response.strip().casefold() == "q":
-                return 0
-            if response.strip():
-                output_fn("Type q or press Enter; no recording started.")
-                continue
+        if not await _start_listening(input_fn, output_fn):
+            return 0
+        with recognizer.open_stream(max_utterance_s=max_utterance_s) as microphone:
+            output_fn("Listening continuously. Press Q to stop.")
+            while True:
+                audio = await microphone.next_utterance(key_fn=key_fn)
+                if audio is None:
+                    return 0
+                try:
+                    result = await asyncio.to_thread(recognizer.transcribe_audio, audio)
+                    if not result.text.strip():
+                        continue
+                    session.record_voice_transcript(result.text)
+                    preview = preview_transcript(result.text)
+                    if preview.command is None:
+                        session.record_rejection(
+                            result.text, preview.rejection or "unknown"
+                        )
+                        output_fn(f"Ignored transcript: {result.text}")
+                        continue
 
-            output_fn(f"Recording for {duration_s:g} seconds...")
-            result = await asyncio.to_thread(recognizer.recognize, duration_s)
-            output_fn(f"Input level: RMS={result.rms:.6f}, peak={result.peak:.6f}")
-            session.record_voice_transcript(result.text)
-            preview = preview_transcript(result.text)
-            show_preview(preview, execution_enabled=True, output_fn=output_fn)
-            if preview.command is None:
-                session.record_rejection(result.text, preview.rejection or "unknown")
-                continue
-
-            answer = await _read_sitl_input(
-                input_fn, "Type Y to execute, or N to cancel: ",
-                clear_pending=True,
-            )
-            confirmed = answer.strip().casefold() == "y"
-            session.record_voice_confirmation(confirmed)
-            if not confirmed:
-                output_fn("Cancelled; no flight action was taken.")
-                continue
-
-            try:
-                if isinstance(preview.command, (TakeoffCommand, CircleCommand)):
-                    flight_result = await execute_with_land_hotkey(
-                        session, preview.command, output_fn=output_fn
+                    output_fn(
+                        f"Input level: RMS={result.rms:.6f}, peak={result.peak:.6f}"
                     )
-                else:
-                    flight_result = await session.execute(preview.command)
-            except CommandRejected as error:
-                output_fn(f"Rejected: {error}; no flight action was taken.")
-                continue
-            output_fn(f"Complete: {flight_result.message}")
-            if flight_result.exit_requested:
-                return 0
+                    show_preview(preview, execution_enabled=True, output_fn=output_fn)
+                    answer = await _read_sitl_input(
+                        input_fn, "Type Y to execute, or N to cancel: ",
+                        clear_pending=True,
+                    )
+                    confirmed = answer.strip().casefold() == "y"
+                    session.record_voice_confirmation(confirmed)
+                    if not confirmed:
+                        output_fn("Cancelled; no flight action was taken.")
+                        continue
+
+                    try:
+                        if isinstance(preview.command, (TakeoffCommand, CircleCommand)):
+                            flight_result = await execute_with_land_hotkey(
+                                session, preview.command, output_fn=output_fn
+                            )
+                        else:
+                            flight_result = await session.execute(preview.command)
+                    except CommandRejected as error:
+                        output_fn(f"Rejected: {error}; no flight action was taken.")
+                        continue
+
+                    output_fn(f"Complete: {flight_result.message}")
+                    if flight_result.exit_requested:
+                        return 0
+                finally:
+                    microphone.resume()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", type=int, help="sounddevice input index")
-    parser.add_argument("--duration", type=float, default=6.0)
+    parser.add_argument(
+        "--max-utterance", "--duration", type=float,
+        default=DEFAULT_MAX_UTTERANCE_SECONDS, dest="max_utterance",
+        help="maximum spoken phrase length in seconds (old --duration alias accepted)",
+    )
     parser.add_argument("--model", choices=SUPPORTED_MODELS, default=DEFAULT_MODEL_NAME)
     parser.add_argument(
         "--sitl", action="store_true", help="enable confirmed PX4 Gazebo SITL commands"
@@ -203,8 +250,12 @@ def main() -> None:
     recognizer = MicrophoneRecognizer(device=args.device, model_name=args.model)
     try:
         status = (
-            asyncio.run(run_voice_sitl(recognizer, duration_s=args.duration))
-            if args.sitl else run_voice_preview(recognizer, duration_s=args.duration)
+            asyncio.run(run_voice_sitl(
+                recognizer, max_utterance_s=args.max_utterance
+            ))
+            if args.sitl else run_voice_preview(
+                recognizer, max_utterance_s=args.max_utterance
+            )
         )
     except asyncio.CancelledError as error:
         print(f"SITL session interrupted: {error}")
