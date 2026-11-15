@@ -1,11 +1,11 @@
 # VoiceDrone
 
-VoiceDrone is an incremental autonomous-flight project built around PX4 SITL and
-MAVSDK. Milestone 1 is deliberately limited to deterministic takeoff and circle
-behaviors; voice recognition, natural-language parsing, computer vision, PPO,
-ROS 2, and real hardware are later work.
+VoiceDrone runs deterministic takeoff, circle, and land commands in PX4 SITL
+through a persistent MAVSDK session. Keyboard text and local speech use the
+same validated command parser and flight session. Real hardware control is not
+implemented.
 
-## Milestone 1 status
+## Project status
 
 - [x] WSL2 with Ubuntu 24.04 verified
 - [x] WSL network, DNS, HTTPS, Git, and GitHub access verified
@@ -18,14 +18,43 @@ ROS 2, and real hardware are later work.
 - [x] Independent side, centered center-facing (`circle_centripetal`), and
       centered fixed-yaw (`circle`) behaviors implemented and flight-tested
 - [x] Takeoff, circle, and runner-controlled landing flight-tested together
+- [x] Persistent keyboard control, safe landing, and connection-loss behavior
+      tested in PX4 SITL
+- [x] Local microphone transcription and confirmed spoken takeoff, circle,
+      and land tested in PX4 SITL
+- [x] Continuous Silero VAD listening verified with spoken takeoff, circle,
+      and land in visible Gazebo SITL
 
 See [documentation/setup.md](documentation/setup.md) for the verified toolchain
 and [documentation/architecture.md](documentation/architecture.md) for the
 coordinate and component design.
 
-Python source is organized under `src/`: Milestone 1 flight code lives in
-`src/flight`, while `src/voice`, `src/cv`, and `src/rl` are empty package
-placeholders for later milestones. Tests remain under `tests/`.
+Python source lives under `src/flight`, `src/control`, and `src/voice`. The
+`src/cv` and `src/rl` packages remain placeholders. Tests are under `tests/`.
+
+## Command control
+
+Run keyboard commands without PX4 to inspect parsing and state transitions:
+
+```powershell
+voicedrone-control
+```
+
+With PX4 v1.17.0 and Gazebo x500 running and routed to Windows, the SITL
+controllers are:
+
+```powershell
+voicedrone-control --sitl
+voicedrone-voice --sitl --device 1
+```
+
+The voice controller asks for Enter once, then listens continuously. It waits
+for a completed phrase, shows the transcript and interpreted action, and
+requires `Y` or `y` before execution. `N` or `n` skips the command. Press `Q`
+while listening to end the session; press `L` during a maneuver to land
+immediately. The speech controller is limited to the verified PX4/Gazebo SITL
+setup. See [voice control](documentation/voice_control.md) for microphone
+options and [setup](documentation/setup.md) for the MAVLink route.
 
 ## Keyboard SITL failsafe
 

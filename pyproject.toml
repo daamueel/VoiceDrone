@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 voicedrone-sitl = "flight.run_sitl:main"
 voicedrone-analyze = "flight.analyze_sitl:main"
 voicedrone-control = "control.run_keyboard:main"
+voicedrone-voice = "voice.run_voice:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

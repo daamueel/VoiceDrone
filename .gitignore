@@ -79,6 +79,18 @@ gz.log
 # Generated SITL CSV logs and matching N/E plots are written here.
 logs/
 runtime/
+recordings/
+*.wav
+*.flac
+*.pcm
+*.mp3
+*.m4a
+
+# Downloaded local speech model caches and weights
+.cache/
+model_cache/
+*.onnx
+*.safetensors
 
 
 # ============================================================

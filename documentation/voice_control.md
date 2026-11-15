@@ -156,3 +156,26 @@ airborne center, and touchdown was 0.019 m from it. The takeoff settled
 0.158 m below the requested 0.500 m gain, within its configured settling
 criteria. The voice CLI exited cleanly, the prior PX4 failsafe parameters were
 restored, and PX4/Gazebo and MAVSDK Server were shut down.
+
+### Continuous listening run
+
+On 2026-11-14 (Pacific time), the sequence was repeated with the new
+continuous microphone loop and Gazebo GUI visible to the user. Enter started
+listening once. The microphone recognized `takeoff`, `circle, radius, 5`, and
+`land` as separate complete phrases. Each parsed action appeared with its
+effective parameters; the user replied `Y` in the Codex chat, and that choice
+was relayed to the CLI for each keyboard confirmation. The circle held a
+5.000 m radius and returned to its airborne start. Landing completed and PX4
+reported disarm. `Q` then ended the listening session without another Enter.
+
+The artifacts are `logs/control_20261115T010707637902Z_voice.jsonl`,
+`logs/sitl_20261115T010707Z_control_20261115T010707637902Z.csv`, and the
+matching `_ne.png` path plot. The record contains exactly three transcripts,
+accepted confirmations, requests, and completed commands, with no rejection or
+failure. CSV analysis found a 4.994 m mean circle radius against 5.000 m
+commanded, 0.022 m radial RMSE, 0.935 m/s mean measured speed, and 0.006 m
+mean altitude error. The return ended 0.142 m from the airborne center;
+touchdown was 0.064 m from it. The takeoff settled 0.166 m below the requested
+0.500 m gain, within its configured settling criteria. The last telemetry
+sample is disarmed. Prior PX4 failsafe values were restored, and PX4/Gazebo
+and MAVSDK Server were shut down.

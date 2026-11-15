@@ -40,9 +40,10 @@ D:\Anaconda3\Scripts\conda.exe run -n voicedrone python -m pytest
 ```
 
 The editable install registers the packages under `src/` without copying the
-source. It also provides `voicedrone-sitl` and `voicedrone-analyze` while the
-Conda environment is active. Re-run the editable install only if packaging
-metadata changes; ordinary source edits are picked up immediately.
+source. It provides `voicedrone-sitl`, `voicedrone-analyze`,
+`voicedrone-control`, and `voicedrone-voice` while the Conda environment is
+active. Re-run the editable install if packaging metadata changes; ordinary
+source edits are picked up immediately.
 
 An unactivated shell may resolve `python` to MSYS2 Python 3.12, so always
 activate the environment or use `conda run` explicitly.
@@ -55,6 +56,7 @@ The Windows Python 3.11.15 environment now has these versions installed:
 | --- | --- |
 | `sounddevice` | 0.5.6 |
 | `faster-whisper` | 1.2.1 |
+| `onnxruntime` (Silero VAD) | 1.31.1 |
 | `ctranslate2` | 4.8.5 |
 | PyAV (`av`) | 18.1.0 |
 | PortAudio bundled with `sounddevice` | V19.7.0-devel |
@@ -196,6 +198,28 @@ system ID 245/component ID 190, zero lost messages, and a 0--4 ms ping range.
 This confirms bidirectional communication. Closing the short-lived client
 causes PX4 to report that its ground-station connection was lost; that is
 expected for this probe.
+
+## Interactive keyboard and voice sessions
+
+After launching Gazebo x500 and routing MAVLink to the current Windows WSL
+gateway, use the verified Windows environment:
+
+```powershell
+voicedrone-control --sitl
+voicedrone-voice --sitl --device 1
+```
+
+The keyboard controller accepts typed commands immediately. The voice
+controller asks for Enter once, then keeps the microphone open and transcribes
+each completed phrase. It previews the transcript and full action and requires
+`Y` or `y` before execution; `N` or `n` skips it. `Q` stops listening, and `L`
+lands immediately during a takeoff or circle maneuver. The voice CLI is gated
+to the verified Gazebo x500 SITL configuration. See `voice_control.md` for
+phrase examples, diameter wording, and microphone options.
+
+The session configures PX4 `COM_OBL_RC_ACT=4` and `NAV_DLL_ACT=3` to Land before
+arming. After the drone is disarmed and the session closes, restore the prior
+parameter values at `pxh>` if needed, save, and use the shutdown sequence above.
 
 ## Verified takeoff run
 

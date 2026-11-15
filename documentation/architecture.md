@@ -16,10 +16,13 @@ arming, action order, logging, error handling, and safe shutdown. In particular:
   and never take off or land.
 - Landing is an explicit runner action.
 
-Future voice phrases should resolve through a command registry without changing
-trajectory code: "circle" selects the centered, fixed-yaw `Circle`,
-"centripetal" selects the centered, inward-facing `CircleCentripetal`, and
-"circle side" selects the offset, inward-facing `CircleSide`.
+The user-facing command layer maps a generic `circle` to the centered,
+inward-facing `CircleCentripetal`. Explicit `fixed yaw circle` selects the
+centered, fixed-heading `Circle`; `circle side` selects `CircleSide`. A generic
+takeoff targets 0.5 m above the measured starting height. A generic circle
+uses a 0.5 m radius and 1 m/s tangential speed. Numbered circle phrases without
+the word `radius` supply a diameter; the parser divides it by two before
+creating a command.
 
 The implementation uses these small components:
 
@@ -36,8 +39,14 @@ The implementation uses these small components:
   and cleanup.
 - `src/flight/sitl_log.py` and `src/flight/analyze_sitl.py`: CSV capture and
   analysis.
-- `src/voice`, `src/cv`, and `src/rl`: importable placeholders for later
-  milestones; they contain no Milestone 1 implementation.
+- `src/control/commands.py` and `src/control/parser.py`: validated user-facing
+  commands and deterministic text parsing.
+- `src/control/session.py` and `src/control/run_keyboard.py`: persistent SITL
+  command execution, keyboard control, landing hotkey, and safe cleanup.
+- `src/voice/continuous.py`, `src/voice/recognizer.py`, and
+  `src/voice/run_voice.py`: streaming speech detection, phrase-level local
+  transcription, and the confirmed voice interface.
+- `src/cv` and `src/rl`: importable placeholders for later work.
 
 ## Local frame conventions
 
@@ -138,7 +147,7 @@ separate from circular-motion duration. The earlier centered-circle run had a
 1.06 m measured start/end gap because it landed immediately at commanded
 completion; its commanded path was a full circle.
 
-## Command interface direction
+## Shared command interfaces
 
 `flight.run_sitl` is the typed, validated behavior interface. Its command
 registry currently dispatches `takeoff`, `circle_side`, `circle_centripetal`,
@@ -150,9 +159,23 @@ vehicle's current position. The circle still neither takes off nor lands. Once
 circle closure and radial return have settled, the runner invokes landing as a
 separate action.
 
-A future text or voice parser should produce structured command names and
-numeric arguments for that registry instead of invoking MAVSDK or shell
-commands directly.
+Interactive keyboard text and voice transcripts instead pass through the same
+`control.parser.parse_command` function. It produces `TakeoffCommand`,
+`CircleCommand`, `LandCommand`, and non-flight commands with validated values.
+`FlightSession` owns one MAVSDK connection, enforces landed/airborne command
+order, records command events, and attempts landing on cancellation, failure,
+disconnect, or exit. Spoken commands require a keyboard `Y` confirmation
+after the transcript and complete interpreted action are displayed. Unknown
+or unconfirmed speech never reaches `FlightSession.execute`.
+
+The voice controller keeps one microphone stream open after Enter. Silero VAD
+scores 32 ms audio chunks, retains 0.32 s of pre-roll, and closes an utterance
+after 0.72 s of silence. Only then does the local CPU `small.en` Whisper model
+transcribe the whole phrase. The parser sees only complete transcripts; the
+microphone discards audio during transcription, confirmation, and execution.
+No application-level ASR confidence cutoff is used. `Q` stops listening, and
+`L` remains the immediate land key during a maneuver. Audio stays in memory
+and is discarded after transcription.
 
 A separate SITL session manager can later launch PX4/Gazebo in WSL, wait for a
 ready state, configure the Windows MAVLink route, execute one or more registry
