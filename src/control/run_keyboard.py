@@ -40,6 +40,8 @@ HELP_TEXT = """Supported commands:
   down 0.5 meters
   forward five meters (along current nose heading)
   backward 1 meter
+  left (default 0.5 m, relative to current nose heading)
+  right 2 meters
   land
   status
   help

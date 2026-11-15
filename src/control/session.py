@@ -262,10 +262,16 @@ class FlightSession:
                     f"from measured height {height:.3f} m; use land"
                 )
             down = distance
-        else:
+        elif command.direction in (MoveDirection.FORWARD, MoveDirection.BACKWARD):
             sign = 1.0 if command.direction is MoveDirection.FORWARD else -1.0
             north = sign * distance * math.cos(reference.yaw_rad)
             east = sign * distance * math.sin(reference.yaw_rad)
+        elif command.direction in (MoveDirection.LEFT, MoveDirection.RIGHT):
+            sign = 1.0 if command.direction is MoveDirection.RIGHT else -1.0
+            north = -sign * distance * math.sin(reference.yaw_rad)
+            east = sign * distance * math.cos(reference.yaw_rad)
+        else:
+            raise TypeError(f"unsupported move direction: {command.direction}")
 
         behavior = LinearMove(north, east, down)
         started = time.monotonic()

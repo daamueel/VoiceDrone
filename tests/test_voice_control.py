@@ -22,6 +22,8 @@ from voice.run_voice import (
         ("land", LandCommand()),
         ("up five meters", MoveCommand(MoveDirection.UP, 5.0)),
         ("backward", MoveCommand(MoveDirection.BACKWARD)),
+        ("left", MoveCommand(MoveDirection.LEFT)),
+        ("right two meters", MoveCommand(MoveDirection.RIGHT, 2.0)),
     ],
 )
 def test_live_style_transcript_uses_keyboard_parser(transcript, expected) -> None:
@@ -58,6 +60,12 @@ def test_forward_confirmation_describes_heading_reference() -> None:
     output: list[str] = []
     show_preview(preview_transcript("forward five meters"), execution_enabled=True, output_fn=output.append)
     assert "move forward 5.000 m along the nose heading measured when the move starts" in "\n".join(output)
+
+
+def test_left_confirmation_describes_sideways_move() -> None:
+    output: list[str] = []
+    show_preview(preview_transcript("left"), execution_enabled=True, output_fn=output.append)
+    assert "move left 0.500 m sideways relative to the nose heading" in "\n".join(output)
 
 
 @pytest.mark.parametrize(

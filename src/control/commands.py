@@ -44,6 +44,8 @@ class MoveDirection(str, Enum):
     DOWN = "down"
     FORWARD = "forward"
     BACKWARD = "backward"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 def _require_finite_range(

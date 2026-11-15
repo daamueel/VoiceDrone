@@ -53,6 +53,8 @@ def test_dry_run_relative_moves_track_height_and_reject_ground_crossing() -> Non
     assert not controller.execute(MoveCommand(MoveDirection.DOWN)).rejected
     assert controller.height_m == pytest.approx(0.5)
     assert not controller.execute(MoveCommand(MoveDirection.FORWARD, 2)).rejected
+    assert not controller.execute(MoveCommand(MoveDirection.LEFT)).rejected
+    assert not controller.execute(MoveCommand(MoveDirection.RIGHT)).rejected
     assert controller.height_m == pytest.approx(0.5)
 
 

@@ -78,7 +78,11 @@ def describe_action(command: Command) -> str:
         reference = (
             "relative to the current position while holding heading"
             if command.direction in (MoveDirection.UP, MoveDirection.DOWN)
-            else "along the nose heading measured when the move starts while holding heading"
+            else (
+                "along the nose heading measured when the move starts while holding heading"
+                if command.direction in (MoveDirection.FORWARD, MoveDirection.BACKWARD)
+                else "sideways relative to the nose heading measured when the move starts while holding heading"
+            )
         )
         return (
             f"move {command.direction.value} {command.distance_m:.3f} m "

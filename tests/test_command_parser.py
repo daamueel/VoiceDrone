@@ -43,6 +43,8 @@ def test_parse_takeoff(text: str, altitude: float) -> None:
         ("down by one point five metres", MoveDirection.DOWN, 1.5),
         ("forward 5", MoveDirection.FORWARD, 5.0),
         ("backward two meters", MoveDirection.BACKWARD, 2.0),
+        ("left", MoveDirection.LEFT, 0.5),
+        ("right five meters", MoveDirection.RIGHT, 5.0),
     ],
 )
 def test_parse_relative_move(text, direction, distance) -> None:
@@ -160,6 +162,8 @@ def test_parse_non_parameterized_commands(text: str, expected: object) -> None:
         "forward 21 meters",
         "backward zero meters",
         "forward 5 and land",
+        "left -2",
+        "right 21 meters",
     ],
 )
 def test_reject_ambiguous_conflicting_or_unsupported_input(text: str) -> None:

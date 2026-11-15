@@ -58,9 +58,10 @@ options and [setup](documentation/setup.md) for the MAVLink route.
 
 `circle` and `circle radius 5` point the drone toward the center throughout
 the circle; `fixed yaw circle radius 5` holds its starting heading. `up`,
-`down`, `forward`, and `backward` default to 0.5 m. For example, `up five
-meters` and `forward 2 meters` select explicit distances. Forward and backward
-use the nose heading measured at the start of each move and hold that heading.
+`down`, `forward`, `backward`, `left`, and `right` default to 0.5 m. For example,
+`up five meters` and `right 2 meters` select explicit distances. Horizontal
+moves use the nose heading measured at the start of each move and hold that
+heading. Left and right move sideways relative to the nose.
 Down is rejected if its requested distance would leave less than 0.25 m above
 the takeoff plane, based on current position telemetry; use `land` for the
 final descent. These movements have no obstacle avoidance and are currently
