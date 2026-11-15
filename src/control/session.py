@@ -5,12 +5,14 @@ import contextlib
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import time
 
 from flight.circle import Circle
 from flight.circle_centripetal import CircleCentripetal
 from flight.circle_side import CircleSide
+from flight.linear_move import LinearMove
 from flight.px4_offboard_adapter import PX4OffboardAdapter
 from flight.run_sitl import (
     align_circle_side_yaw,
@@ -29,6 +31,9 @@ from .commands import (
     ExitCommand,
     HelpCommand,
     LandCommand,
+    MIN_DESCENT_CLEARANCE_M,
+    MoveCommand,
+    MoveDirection,
     StatusCommand,
     TakeoffCommand,
 )
@@ -69,6 +74,7 @@ class FlightSession:
         self.connection_lost = False
         self.airborne = False
         self.command: TrajectoryPoint | None = None
+        self.ground_down_m: float | None = None
         self._connection_task: asyncio.Task[None] | None = None
 
     async def __aenter__(self) -> "FlightSession":
@@ -81,8 +87,10 @@ class FlightSession:
             await self.adapter.connect()
             self.connected = True
             await self.adapter.wait_until_ready()
-            if self.adapter.state().armed:
+            ground = self.adapter.state()
+            if ground.armed:
                 raise RuntimeError("SITL vehicle is already armed at session start")
+            self.ground_down_m = ground.down_m
             await self.adapter.verify_sitl()
             self._record("sitl_verified", airframe=4001, gazebo_bridge=True)
             await self.adapter.configure_link_loss_failsafe()
@@ -146,6 +154,10 @@ class FlightSession:
                 if not self._is_airborne():
                     raise CommandRejected("circle is unavailable while landed")
                 result = await self._circle(command)
+            elif isinstance(command, MoveCommand):
+                if not self._is_airborne():
+                    raise CommandRejected(f"{command.direction.value} is unavailable while landed")
+                result = await self._move(command)
             elif isinstance(command, LandCommand):
                 if not self._is_airborne():
                     raise CommandRejected("land is unavailable while already landed")
@@ -182,6 +194,7 @@ class FlightSession:
         assert self.log is not None
         behavior = Takeoff(target_altitude=command.altitude_m)
         reference = self.adapter.state()
+        self.ground_down_m = reference.down_m
         self.command = behavior.point_at(0.0, reference)
         await self.adapter.send(self.command)
         await self.adapter.arm()
@@ -222,6 +235,59 @@ class FlightSession:
                 command.behavior.value, 15.0, 15.0, 15.0,
             )
         return FlightResult(f"{command.behavior.value} complete; vehicle remains airborne")
+
+    async def _move(self, command: MoveCommand) -> FlightResult:
+        assert self.log is not None
+        reference = self.adapter.state()
+        if not reference.armed:
+            raise CommandRejected("move is unavailable while vehicle is disarmed")
+        if not all(math.isfinite(value) for value in (
+            reference.north_m, reference.east_m, reference.down_m, reference.yaw_rad
+        )):
+            raise CommandRejected("move requires valid position and heading telemetry")
+
+        distance = command.distance_m
+        north = east = down = 0.0
+        if command.direction is MoveDirection.UP:
+            down = -distance
+        elif command.direction is MoveDirection.DOWN:
+            if self.ground_down_m is None or not math.isfinite(self.ground_down_m):
+                raise CommandRejected("ground height is unavailable")
+            height = self.ground_down_m - reference.down_m
+            # Offboard descent must stop above the takeoff plane; use land
+            # for the final descent and disarm.
+            if not math.isfinite(height) or distance > height - MIN_DESCENT_CLEARANCE_M:
+                raise CommandRejected(
+                    f"down {distance:.3f} m exceeds the available descent "
+                    f"from measured height {height:.3f} m; use land"
+                )
+            down = distance
+        else:
+            sign = 1.0 if command.direction is MoveDirection.FORWARD else -1.0
+            north = sign * distance * math.cos(reference.yaw_rad)
+            east = sign * distance * math.sin(reference.yaw_rad)
+
+        behavior = LinearMove(north, east, down)
+        started = time.monotonic()
+        settled_since: float | None = None
+        while True:
+            elapsed = time.monotonic() - started
+            self.command = behavior.point_at(elapsed, reference)
+            await self.adapter.send(self.command)
+            measured = self.adapter.state()
+            self.log.write(elapsed, command.direction.value, self.command, measured)
+            if elapsed >= behavior.duration and behavior.is_settled(reference, measured):
+                settled_since = time.monotonic() if settled_since is None else settled_since
+                if time.monotonic() - settled_since >= 0.5:
+                    return FlightResult(
+                        f"{command.direction.value} {distance:.3f} m complete; "
+                        "vehicle remains airborne"
+                    )
+            else:
+                settled_since = None
+            if elapsed > behavior.duration + 15.0:
+                raise TimeoutError(f"{command.direction.value} did not settle")
+            await asyncio.sleep(0.05)
 
     async def _land(self) -> None:
         assert self.log is not None

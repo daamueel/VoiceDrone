@@ -9,6 +9,7 @@ import sys
 from control.commands import (
     CircleBehavior, CircleCommand, Command, ExitCommand, HelpCommand, LandCommand,
     StatusCommand, TakeoffCommand,
+    MoveCommand, MoveDirection,
 )
 from control.parser import CommandParseError, parse_command
 from control.run_keyboard import (
@@ -72,6 +73,16 @@ def describe_action(command: Command) -> str:
             f"one {command.direction.value}, {facing} circle at "
             f"{command.radius_m:.3f} m radius and {command.speed_m_s:.3f} m/s, "
             "then return to its airborne start and remain airborne"
+        )
+    if isinstance(command, MoveCommand):
+        reference = (
+            "relative to the current position while holding heading"
+            if command.direction in (MoveDirection.UP, MoveDirection.DOWN)
+            else "along the nose heading measured when the move starts while holding heading"
+        )
+        return (
+            f"move {command.direction.value} {command.distance_m:.3f} m "
+            f"{reference} and remain airborne"
         )
     if isinstance(command, LandCommand):
         return "land and wait for disarm"
@@ -204,7 +215,7 @@ async def run_voice_sitl(
                         continue
 
                     try:
-                        if isinstance(preview.command, (TakeoffCommand, CircleCommand)):
+                        if isinstance(preview.command, (TakeoffCommand, CircleCommand, MoveCommand)):
                             flight_result = await execute_with_land_hotkey(
                                 session, preview.command, output_fn=output_fn
                             )

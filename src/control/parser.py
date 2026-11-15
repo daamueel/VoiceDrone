@@ -11,6 +11,8 @@ from .commands import (
     ExitCommand,
     HelpCommand,
     LandCommand,
+    MoveCommand,
+    MoveDirection,
     StatusCommand,
     TakeoffCommand,
 )
@@ -280,6 +282,20 @@ def parse_command(text: str) -> Command:
         return _takeoff(tokens)
     if "circle" in tokens or "centripetal" in tokens:
         return _circle(tokens)
+    if tokens[0] in {direction.value for direction in MoveDirection}:
+        direction = MoveDirection(tokens[0])
+        remainder = tokens[1:]
+        if remainder and remainder[0] == "by":
+            remainder = remainder[1:]
+        if not remainder:
+            if len(tokens) == 1:
+                return MoveCommand(direction)
+            raise CommandParseError(f"{direction.value} distance is missing")
+        distance = _parse_measurement(remainder, name=f"{direction.value} distance")
+        try:
+            return MoveCommand(direction, distance)
+        except ValueError as error:
+            raise CommandParseError(str(error)) from error
     exact_commands: dict[str, Command] = {
         "land": LandCommand(),
         "status": StatusCommand(),

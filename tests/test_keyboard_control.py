@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from control.commands import CircleCommand, TakeoffCommand
+from control.commands import CircleCommand, MoveCommand, MoveDirection, TakeoffCommand
 from control.run_keyboard import (
     DryRunController,
     FlightState,
@@ -41,6 +41,19 @@ def test_dry_run_controller_enforces_flight_state() -> None:
     assert controller.state is FlightState.AIRBORNE
     assert controller.execute(TakeoffCommand()).rejected
     assert not controller.execute(CircleCommand()).rejected
+
+
+def test_dry_run_relative_moves_track_height_and_reject_ground_crossing() -> None:
+    controller = DryRunController()
+    assert controller.execute(MoveCommand(MoveDirection.UP)).rejected
+    controller.execute(TakeoffCommand())
+    assert controller.execute(MoveCommand(MoveDirection.DOWN)).rejected
+    assert not controller.execute(MoveCommand(MoveDirection.UP)).rejected
+    assert controller.height_m == pytest.approx(1.0)
+    assert not controller.execute(MoveCommand(MoveDirection.DOWN)).rejected
+    assert controller.height_m == pytest.approx(0.5)
+    assert not controller.execute(MoveCommand(MoveDirection.FORWARD, 2)).rejected
+    assert controller.height_m == pytest.approx(0.5)
 
 
 def test_keyboard_sequence_previews_commands_without_px4() -> None:
@@ -107,7 +120,8 @@ def test_controller_rejects_unknown_structured_type() -> None:
         DryRunController().execute(object())  # type: ignore[arg-type]
 
 
-def test_immediate_land_preempts_active_maneuver() -> None:
+@pytest.mark.parametrize("maneuver", [CircleCommand(), MoveCommand(MoveDirection.FORWARD)])
+def test_immediate_land_preempts_active_maneuver(maneuver) -> None:
     from control.session import FlightResult
     from control.commands import LandCommand
 
@@ -135,7 +149,7 @@ def test_immediate_land_preempts_active_maneuver() -> None:
     output: list[str] = []
     result = asyncio.run(
         execute_with_land_hotkey(
-            session, CircleCommand(), output_fn=output.append,
+            session, maneuver, output_fn=output.append,
             key_fn=lambda: next(keys),
         )
     )

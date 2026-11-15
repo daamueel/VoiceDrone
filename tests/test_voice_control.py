@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from control.commands import CircleBehavior, CircleCommand, LandCommand, TakeoffCommand
+from control.commands import CircleBehavior, CircleCommand, LandCommand, MoveCommand, MoveDirection, TakeoffCommand
 from control.session import FlightResult
 from voice.run_voice import (
     main, preview_transcript, run_voice_preview, run_voice_sitl, show_preview,
@@ -20,6 +20,8 @@ from voice.run_voice import (
         ("Take off to 5 meters", TakeoffCommand(5.0)),
         ("circle, radius 5", CircleCommand(radius_m=5.0)),
         ("land", LandCommand()),
+        ("up five meters", MoveCommand(MoveDirection.UP, 5.0)),
+        ("backward", MoveCommand(MoveDirection.BACKWARD)),
     ],
 )
 def test_live_style_transcript_uses_keyboard_parser(transcript, expected) -> None:
@@ -50,6 +52,12 @@ def test_circle_confirmation_paraphrases_radius_with_transcript(
     assert "one clockwise, inward-facing circle" in confirmation
     assert "return to its airborne start and remain airborne in PX4 SITL" in confirmation
     assert "Type Y to execute, or N to skip it." in confirmation
+
+
+def test_forward_confirmation_describes_heading_reference() -> None:
+    output: list[str] = []
+    show_preview(preview_transcript("forward five meters"), execution_enabled=True, output_fn=output.append)
+    assert "move forward 5.000 m along the nose heading measured when the move starts" in "\n".join(output)
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,6 @@
 # VoiceDrone
 
-VoiceDrone runs deterministic takeoff, circle, and land commands in PX4 SITL
+VoiceDrone runs deterministic takeoff, circle, relative move, and land commands in PX4 SITL
 through a persistent MAVSDK session. Keyboard text and local speech use the
 same validated command parser and flight session. Real hardware control is not
 implemented.
@@ -55,6 +55,16 @@ while listening to end the session; press `L` during a maneuver to land
 immediately. The speech controller is limited to the verified PX4/Gazebo SITL
 setup. See [voice control](documentation/voice_control.md) for microphone
 options and [setup](documentation/setup.md) for the MAVLink route.
+
+`circle` and `circle radius 5` point the drone toward the center throughout
+the circle; `fixed yaw circle radius 5` holds its starting heading. `up`,
+`down`, `forward`, and `backward` default to 0.5 m. For example, `up five
+meters` and `forward 2 meters` select explicit distances. Forward and backward
+use the nose heading measured at the start of each move and hold that heading.
+Down is rejected if its requested distance would leave less than 0.25 m above
+the takeoff plane, based on current position telemetry; use `land` for the
+final descent. These movements have no obstacle avoidance and are currently
+limited to verified Gazebo x500 SITL.
 
 ## Keyboard SITL failsafe
 

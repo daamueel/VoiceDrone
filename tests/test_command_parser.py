@@ -9,6 +9,8 @@ from control.commands import (
     ExitCommand,
     HelpCommand,
     LandCommand,
+    MoveCommand,
+    MoveDirection,
     StatusCommand,
     TakeoffCommand,
 )
@@ -30,6 +32,21 @@ from control.parser import CommandParseError, parse_command
 )
 def test_parse_takeoff(text: str, altitude: float) -> None:
     assert parse_command(text) == TakeoffCommand(altitude)
+
+
+@pytest.mark.parametrize(
+    ("text", "direction", "distance"),
+    [
+        ("up", MoveDirection.UP, 0.5),
+        ("DOWN!", MoveDirection.DOWN, 0.5),
+        ("up five meters", MoveDirection.UP, 5.0),
+        ("down by one point five metres", MoveDirection.DOWN, 1.5),
+        ("forward 5", MoveDirection.FORWARD, 5.0),
+        ("backward two meters", MoveDirection.BACKWARD, 2.0),
+    ],
+)
+def test_parse_relative_move(text, direction, distance) -> None:
+    assert parse_command(text) == MoveCommand(direction, distance)
 
 
 @pytest.mark.parametrize(
@@ -138,6 +155,11 @@ def test_parse_non_parameterized_commands(text: str, expected: object) -> None:
         "side radius 5",
         "fixed yaw radius 5",
         "status circle",
+        "up by",
+        "down -1",
+        "forward 21 meters",
+        "backward zero meters",
+        "forward 5 and land",
     ],
 )
 def test_reject_ambiguous_conflicting_or_unsupported_input(text: str) -> None:

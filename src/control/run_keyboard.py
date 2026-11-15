@@ -14,6 +14,9 @@ from .commands import (
     ExitCommand,
     HelpCommand,
     LandCommand,
+    MIN_DESCENT_CLEARANCE_M,
+    MoveCommand,
+    MoveDirection,
     StatusCommand,
     TakeoffCommand,
 )
@@ -33,6 +36,10 @@ HELP_TEXT = """Supported commands:
   centripetal radius 5
   fixed yaw circle radius 5
   circle side radius 5
+  up (default 0.5 m)
+  down 0.5 meters
+  forward five meters (along current nose heading)
+  backward 1 meter
   land
   status
   help
@@ -58,6 +65,8 @@ def command_name(command: Command) -> str:
         return "takeoff"
     if isinstance(command, CircleCommand):
         return "circle"
+    if isinstance(command, MoveCommand):
+        return command.direction.value
     if isinstance(command, LandCommand):
         return "land"
     if isinstance(command, StatusCommand):
@@ -81,6 +90,8 @@ def effective_parameters(command: Command) -> str:
             f"angular_velocity={command.angular_velocity_rad_s:.6f} rad/s, "
             f"duration={command.duration_s:.3f} s"
         )
+    if isinstance(command, MoveCommand):
+        return f"distance={command.distance_m:.3f} m"
     return "none"
 
 
@@ -89,6 +100,7 @@ class DryRunController:
 
     def __init__(self) -> None:
         self.state = FlightState.LANDED
+        self.height_m = 0.0
 
     def execute(self, command: Command) -> DryRunResult:
         if isinstance(command, TakeoffCommand):
@@ -98,6 +110,7 @@ class DryRunController:
                     rejected=True,
                 )
             self.state = FlightState.AIRBORNE
+            self.height_m = command.altitude_m
             return DryRunResult(
                 f"simulate takeoff to {command.altitude_m:.3f} m",
                 "simulated state is airborne; no PX4 action was sent",
@@ -114,6 +127,28 @@ class DryRunController:
                 "simulated state remains airborne; no PX4 action was sent",
             )
 
+        if isinstance(command, MoveCommand):
+            if self.state is FlightState.LANDED:
+                return DryRunResult(
+                    f"{command.direction.value} is unavailable while landed",
+                    rejected=True,
+                )
+            if (command.direction is MoveDirection.DOWN
+                    and command.distance_m > self.height_m - MIN_DESCENT_CLEARANCE_M):
+                return DryRunResult(
+                    f"down {command.distance_m:.3f} m exceeds the available descent "
+                    f"from simulated height {self.height_m:.3f} m; use land",
+                    rejected=True,
+                )
+            if command.direction is MoveDirection.UP:
+                self.height_m += command.distance_m
+            elif command.direction is MoveDirection.DOWN:
+                self.height_m -= command.distance_m
+            return DryRunResult(
+                f"simulate {command.direction.value} {command.distance_m:.3f} m",
+                "simulated state remains airborne; no PX4 action was sent",
+            )
+
         if isinstance(command, LandCommand):
             if self.state is FlightState.LANDED:
                 return DryRunResult(
@@ -121,6 +156,7 @@ class DryRunController:
                     rejected=True,
                 )
             self.state = FlightState.LANDED
+            self.height_m = 0.0
             return DryRunResult(
                 "simulate landing and disarm",
                 "simulated state is landed; no PX4 action was sent",
@@ -215,7 +251,7 @@ async def run_sitl_keyboard(
             output_fn(f"Parsed command: {command_name(command)}")
             output_fn(f"Effective parameters: {effective_parameters(command)}")
             try:
-                if isinstance(command, (TakeoffCommand, CircleCommand)):
+                if isinstance(command, (TakeoffCommand, CircleCommand, MoveCommand)):
                     result = await execute_with_land_hotkey(
                         session, command, output_fn=output_fn
                     )
@@ -281,7 +317,7 @@ def _console_key() -> str | None:
 
 async def execute_with_land_hotkey(
     session: object,
-    command: TakeoffCommand | CircleCommand,
+    command: TakeoffCommand | CircleCommand | MoveCommand,
     *,
     output_fn: Callable[[str], None] = print,
     key_fn: Callable[[], str | None] = _console_key,

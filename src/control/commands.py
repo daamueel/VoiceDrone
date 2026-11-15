@@ -14,6 +14,10 @@ DEFAULT_CIRCLE_RADIUS_M = 0.5
 MIN_CIRCLE_RADIUS_M = 0.1
 MAX_CIRCLE_RADIUS_M = 1000.0
 DEFAULT_CIRCLE_SPEED_M_S = 1.0
+DEFAULT_MOVE_DISTANCE_M = 0.5
+MIN_MOVE_DISTANCE_M = 0.1
+MAX_MOVE_DISTANCE_M = 20.0
+MIN_DESCENT_CLEARANCE_M = 0.25
 
 
 class CircleBehavior(str, Enum):
@@ -33,6 +37,13 @@ class Direction(str, Enum):
     @property
     def sign(self) -> float:
         return 1.0 if self is Direction.CLOCKWISE else -1.0
+
+
+class MoveDirection(str, Enum):
+    UP = "up"
+    DOWN = "down"
+    FORWARD = "forward"
+    BACKWARD = "backward"
 
 
 def _require_finite_range(
@@ -91,6 +102,20 @@ class CircleCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class MoveCommand:
+    direction: MoveDirection
+    distance_m: float = DEFAULT_MOVE_DISTANCE_M
+
+    def __post_init__(self) -> None:
+        _require_finite_range(
+            self.distance_m,
+            name=f"{self.direction.value} distance",
+            minimum=MIN_MOVE_DISTANCE_M,
+            maximum=MAX_MOVE_DISTANCE_M,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LandCommand:
     pass
 
@@ -113,6 +138,7 @@ class ExitCommand:
 Command: TypeAlias = (
     TakeoffCommand
     | CircleCommand
+    | MoveCommand
     | LandCommand
     | StatusCommand
     | HelpCommand

@@ -15,7 +15,7 @@ DEFAULT_MODEL_NAME = "small.en"
 SUPPORTED_MODELS = ("base.en", "small.en")
 COMMAND_HOTWORDS = (
     "takeoff, take off, circle, radius, clockwise, counterclockwise, "
-    "centripetal, fixed yaw, side, land"
+    "centripetal, fixed yaw, side, land, up, down, forward, backward"
 )
 
 

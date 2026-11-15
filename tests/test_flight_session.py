@@ -1,6 +1,7 @@
 """Session ordering and cleanup checks without a PX4 connection."""
 
 import asyncio
+import math
 from dataclasses import replace
 import os
 import subprocess
@@ -8,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from control.commands import CircleCommand, LandCommand, StatusCommand, TakeoffCommand
+from control.commands import CircleCommand, LandCommand, MoveCommand, MoveDirection, StatusCommand, TakeoffCommand
 from control.session import CommandRejected, FlightSession
 from flight.trajectory import TrajectoryPoint, VehicleState
 from flight.px4_offboard_adapter import PX4OffboardAdapter, _SessionSystem
@@ -107,6 +108,49 @@ def test_exit_while_airborne_lands_before_close(tmp_path, monkeypatch) -> None:
     asyncio.run(scenario())
     assert adapter.calls.index("land") < adapter.calls.index("close")
     assert adapter.calls.count("disarmed") == 1
+
+
+def test_relative_moves_use_measured_heading_and_reject_descent_below_ground(
+    tmp_path, monkeypatch,
+) -> None:
+    class MovingAdapter(FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.measured = replace(self.measured, yaw_rad=math.pi / 2)
+
+        async def send(self, point: TrajectoryPoint) -> None:
+            await super().send(point)
+            self.measured = replace(
+                self.measured, north_m=point.north_m, east_m=point.east_m,
+                down_m=point.down_m,
+            )
+
+    adapter = MovingAdapter()
+
+    async def fake_takeoff(*args):
+        adapter.measured = replace(adapter.measured, down_m=-0.5)
+        return TrajectoryPoint(0, 0, -0.5)
+
+    monkeypatch.setattr("control.session.execute_takeoff", fake_takeoff)
+
+    async def scenario() -> None:
+        async with FlightSession(adapter=adapter, directory=tmp_path) as session:
+            await session.execute(TakeoffCommand())
+            with pytest.raises(CommandRejected, match="measured height"):
+                await session.execute(MoveCommand(MoveDirection.DOWN))
+            await session.execute(MoveCommand(MoveDirection.FORWARD))
+            assert adapter.measured.east_m == pytest.approx(0.5)
+            assert adapter.measured.north_m == pytest.approx(0, abs=1e-8)
+            await session.execute(MoveCommand(MoveDirection.BACKWARD))
+            assert adapter.measured.east_m == pytest.approx(0, abs=1e-8)
+            await session.execute(MoveCommand(MoveDirection.UP))
+            assert adapter.measured.down_m == pytest.approx(-1)
+            await session.execute(MoveCommand(MoveDirection.DOWN))
+            assert adapter.measured.down_m == pytest.approx(-0.5)
+
+    asyncio.run(scenario())
+    assert adapter.calls.count("arm") == 1
+    assert adapter.calls.count("land") == 1
 
 
 def test_cancelled_flight_attempts_landing_before_close(tmp_path, monkeypatch) -> None:
